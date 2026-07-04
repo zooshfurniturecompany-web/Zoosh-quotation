@@ -169,7 +169,7 @@ export default function App() {
       }
     } catch (err) {
       console.error(err);
-      addToast('Error parsing JSON file', 'error');
+      addToast(`Import failed: ${err.message || 'Invalid format'}`, 'error');
     }
   };
 
