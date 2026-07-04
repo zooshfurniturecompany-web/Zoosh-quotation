@@ -97,16 +97,14 @@ export default function App() {
       client: prevQuote?.client 
         ? { ...prevQuote.client } 
         : { name: '', co: '', phone: '', addr: '' },
-      company: prevQuote?.company 
-        ? { ...prevQuote.company } 
-        : {
-            name: 'ZOOSH',
-            tag: 'Custom Furniture Company',
-            addr: 'Palakkad, Kerala, India',
-            phone: '+91 9567193992',
-            email: 'zooshfurniturecompany@gmail.com',
-            web: 'www.zoosh.in'
-          },
+      company: {
+        name: prevQuote?.company?.name || 'ZOOSH',
+        tag: prevQuote?.company?.tag || 'Custom Furniture Company',
+        addr: prevQuote?.company?.addr || 'Palakkad, Kerala, India',
+        phone: prevQuote?.company?.phone || '+91 9567193992',
+        email: prevQuote?.company?.email || 'zooshfurniturecompany@gmail.com',
+        web: prevQuote?.company?.web || 'www.zoosh.in'
+      },
       logoData: prevQuote?.logoData || null,
       items: [],
       itemData: {},
