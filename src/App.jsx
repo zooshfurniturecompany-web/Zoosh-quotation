@@ -136,7 +136,15 @@ export default function App() {
         'success'
       );
       
-      await loadQuotations();
+      // Update local memory state directly instead of refetching the entire list
+      if (isEdit) {
+        setQuotations((prev) =>
+          prev.map((q) => (q.id === saved.id ? saved : q))
+        );
+      } else {
+        setQuotations((prev) => [saved, ...prev]);
+      }
+      
       setCurrentView('dashboard');
       setActiveQuote(null);
     } catch (err) {

@@ -134,13 +134,57 @@ export async function saveQuotationDirect(cleanQuote) {
   }
 }
 
+async function getMaxSequenceNumber() {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('quotations')
+      .select('sequenceNumber')
+      .order('sequenceNumber', { ascending: false })
+      .limit(1);
+    if (error) throw error;
+    return data && data.length > 0 ? parseInt(data[0].sequenceNumber, 10) : 2444;
+  } else {
+    const all = await getAllQuotations();
+    let maxSeq = 2444;
+    all.forEach((q) => {
+      const seq = parseInt(q.sequenceNumber, 10);
+      if (!isNaN(seq) && seq > maxSeq) {
+        maxSeq = seq;
+      }
+    });
+    return maxSeq;
+  }
+}
+
+async function checkDuplicateSequenceNumber(seq, excludeId) {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('quotations')
+      .select('id')
+      .eq('sequenceNumber', seq)
+      .neq('id', excludeId || '')
+      .limit(1);
+    if (error) throw error;
+    return data && data.length > 0;
+  } else {
+    const all = await getAllQuotations();
+    return all.some((q) => {
+      if (q.id === excludeId) return false;
+      return parseInt(q.sequenceNumber, 10) === seq;
+    });
+  }
+}
+
 export async function saveQuotation(quote) {
-  const allQuotes = await getAllQuotations();
   const now = new Date().toISOString();
   let cleanQuote = { ...quote };
 
   if (!quote.id) {
-    const seq = getNextSequentialNumber(allQuotes);
+    let seq = parseInt(quote.sequenceNumber, 10);
+    if (isNaN(seq)) {
+      const maxSeq = await getMaxSequenceNumber();
+      seq = maxSeq + 1;
+    }
     const quoteNo = `QTN-${seq}-00`;
 
     cleanQuote = {
@@ -167,11 +211,7 @@ export async function saveQuotation(quote) {
     }
     const nextRev = currentRev + 1;
 
-    const isDuplicate = allQuotes.some((q) => {
-      if (q.id === quote.id) return false;
-      return parseInt(q.sequenceNumber, 10) === seq;
-    });
-
+    const isDuplicate = await checkDuplicateSequenceNumber(seq, quote.id);
     if (isDuplicate) {
       return Promise.reject(
         new Error(`Quotation number QTN-${seq} already exists. Please choose a unique number.`)
@@ -222,8 +262,8 @@ export async function duplicateQuotation(id) {
   const quote = await getQuotationById(id);
   if (!quote) throw new Error('Quotation not found');
 
-  const allQuotes = await getAllQuotations();
-  const seq = getNextSequentialNumber(allQuotes);
+  const maxSeq = await getMaxSequenceNumber();
+  const seq = maxSeq + 1;
   const now = new Date().toISOString();
   const newNo = `QTN-${seq}-00`;
 
