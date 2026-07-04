@@ -18,6 +18,16 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
     }
   }, [initialQuote]);
 
+  // Focus "Add Product" button on load for new quotations
+  useEffect(() => {
+    if (!quote.id) {
+      const btn = document.getElementById('add-product-btn');
+      if (btn) {
+        btn.focus();
+      }
+    }
+  }, [quote.id]);
+
   // Company logo upload
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
@@ -419,7 +429,7 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
             />
           ))}
         </div>
-        <button className="add-item-btn" type="button" onClick={handleAddItem}>
+        <button id="add-product-btn" className="add-item-btn" type="button" onClick={handleAddItem}>
           + Add Product Item
         </button>
       </div>

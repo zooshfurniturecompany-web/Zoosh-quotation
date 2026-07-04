@@ -74,6 +74,18 @@ export default function App() {
   const handleNew = () => {
     const nextSeq = getNextSequentialNumber(quotations);
     const nextNo = `QTN-${nextSeq}-00`;
+
+    // Find the most recently updated quotation to retain client and company details
+    let prevQuote = null;
+    if (quotations && quotations.length > 0) {
+      const sortedByRecency = [...quotations].sort((a, b) => {
+        const dateA = new Date(a.updatedAt || a.createdAt || 0);
+        const dateB = new Date(b.updatedAt || b.createdAt || 0);
+        return dateB - dateA;
+      });
+      prevQuote = sortedByRecency[0];
+    }
+
     const blankQuote = {
       id: '',
       no: nextNo,
@@ -81,16 +93,24 @@ export default function App() {
       revision: 0,
       date: new Date().toISOString().split('T')[0],
       valid: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
-      curr: 'INR',
-      client: { name: '', co: '', phone: '', addr: '' },
-      company: { name: '', tag: '', addr: '', phone: '', email: '', web: '' },
-      logoData: null,
+      curr: prevQuote?.curr || 'INR',
+      client: prevQuote?.client 
+        ? { ...prevQuote.client } 
+        : { name: '', co: '', phone: '', addr: '' },
+      company: prevQuote?.company 
+        ? { ...prevQuote.company } 
+        : { name: '', tag: '', addr: '', phone: '', email: '', web: '' },
+      logoData: prevQuote?.logoData || null,
       items: [],
       itemData: {},
       itemPhotos: {},
       afState: {},
-      taxPricing: { gst: '18', disc: '0' },
-      terms: { signName: '', signDesg: '', text: '' },
+      taxPricing: prevQuote?.taxPricing 
+        ? { ...prevQuote.taxPricing, gst: prevQuote.taxPricing.gst || '18', disc: prevQuote.taxPricing.disc || '0' } 
+        : { gst: '18', disc: '0' },
+      terms: prevQuote?.terms 
+        ? { signName: prevQuote.terms.signName || '', signDesg: prevQuote.terms.signDesg || '', text: prevQuote.terms.text || '' } 
+        : { signName: '', signDesg: '', text: '' },
       status: 'Draft',
     };
     setActiveQuote(blankQuote);
