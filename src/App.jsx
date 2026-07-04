@@ -114,9 +114,12 @@ export default function App() {
       taxPricing: prevQuote?.taxPricing 
         ? { ...prevQuote.taxPricing, gst: prevQuote.taxPricing.gst || '18', disc: prevQuote.taxPricing.disc || '0' } 
         : { gst: '18', disc: '0' },
-      terms: prevQuote?.terms 
-        ? { signName: prevQuote.terms.signName || '', signDesg: prevQuote.terms.signDesg || '', text: prevQuote.terms.text || '' } 
-        : { signName: '', signDesg: '', text: '' },
+      terms: {
+        ...(prevQuote?.terms || {}),
+        signName: prevQuote?.terms?.signName || 'Authorized Signatory',
+        signDesg: prevQuote?.terms?.signDesg || 'For ZOOSH',
+        text: prevQuote?.terms?.text || '50% advance payment is required to confirm the order.\nBalance payment must be cleared prior to delivery.\nDelivery period is 4-6 weeks from the date of advance payment.\nWarranty: 1 year warranty against manufacturing defects under normal usage.'
+      },
       status: 'Draft',
     };
     setActiveQuote(blankQuote);
