@@ -116,9 +116,9 @@ export default function App() {
         : { gst: '18', disc: '0' },
       terms: {
         ...(prevQuote?.terms || {}),
-        signName: prevQuote?.terms?.signName || 'Authorized Signatory',
-        signDesg: prevQuote?.terms?.signDesg || 'For ZOOSH',
-        text: prevQuote?.terms?.text || '50% advance payment is required to confirm the order.\nBalance payment must be cleared prior to delivery.\nDelivery period is 4-6 weeks from the date of advance payment.\nWarranty: 1 year warranty against manufacturing defects under normal usage.'
+        signName: prevQuote?.terms?.signName || 'LISHA',
+        signDesg: prevQuote?.terms?.signDesg || 'Administrator',
+        text: prevQuote?.terms?.text || 'Adv 70% at the time of confirming order, balance 20% on progress. Final balance of 10% before final finish and handover.\nAny additional work not part of this quotation will be charged 100% in advance as per actuals.\nTaxes and Transportation extra as applicable.\nInvoice validity 30 days from the date.\nIf changing any specification rate may be change accordingly.\nAll rates are Based on 3D Designs drawings only, final quote will purely depend upon final approved designs and detailed drawings.\nOnly the items quoted above are included in our scope.\nAll other terms and conditions will be as per company agreement only.\nPower and water to be supplied by client.'
       },
       status: 'Draft',
     };
