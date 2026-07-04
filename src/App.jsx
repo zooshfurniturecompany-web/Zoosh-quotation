@@ -99,7 +99,14 @@ export default function App() {
         : { name: '', co: '', phone: '', addr: '' },
       company: prevQuote?.company 
         ? { ...prevQuote.company } 
-        : { name: '', tag: '', addr: '', phone: '', email: '', web: '' },
+        : {
+            name: 'ZOOSH',
+            tag: 'Custom Furniture Company',
+            addr: 'Palakkad, Kerala, India',
+            phone: '+91 9567193992',
+            email: 'zooshfurniturecompany@gmail.com',
+            web: 'www.zoosh.in'
+          },
       logoData: prevQuote?.logoData || null,
       items: [],
       itemData: {},
