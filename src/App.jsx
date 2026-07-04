@@ -98,6 +98,7 @@ export default function App() {
         ? { ...prevQuote.client } 
         : { name: '', co: '', phone: '', addr: '' },
       company: {
+        ...(prevQuote?.company || {}),
         name: prevQuote?.company?.name || 'ZOOSH',
         tag: prevQuote?.company?.tag || 'Custom Furniture Company',
         addr: prevQuote?.company?.addr || 'Palakkad, Kerala, India',

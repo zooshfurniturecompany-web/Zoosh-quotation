@@ -1,5 +1,19 @@
 import { currSymbol, fmtNum, numberToWords } from './currency';
 
+function getSanitizedFilename(quote) {
+  const clientName = quote.client?.name || 'Client';
+  const qNo = quote.no || 'QTN';
+  
+  // Sanitize client name: remove / \ : * ? " < > | and . (periods)
+  const cleanClientName = clientName
+    .replace(/[\/\\:\*\?"<>\|]/g, '')
+    .replace(/\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+    
+  return `${cleanClientName} - ${qNo}`;
+}
+
 export function downloadPDF(quote) {
   const coName = quote.company?.name || 'ZOOSH';
   const qNo = quote.no || 'QTN';
@@ -54,7 +68,7 @@ export function downloadPDF(quote) {
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
-    <title>${qNo} — ${coName}</title>
+    <title>${getSanitizedFilename(quote)}</title>
     <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       *{box-sizing:border-box;margin:0;padding:0;}
