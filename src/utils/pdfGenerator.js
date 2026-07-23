@@ -95,10 +95,13 @@ export function downloadPDF(quote) {
       thead tr th{background:#f9f9f9;padding:7px 12px;font-size:8px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#111111;border-bottom:1px solid #111111;text-align:left;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       thead tr th.num{text-align:right;}
       .cat-row td{background:#f9f9f9;color:#111111;padding:10px 12px 6px;font-family:var(--font-serif);font-size:10pt;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid #111111;border-top:1px solid #eee;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      .cat-row{page-break-after:avoid;break-after:avoid;}
       .item-row td{padding:11px 12px;border-bottom:1px solid #eee;vertical-align:top;}
+      .item-row{page-break-inside:avoid;break-inside:avoid;}
       .item-row:nth-child(even) td{background:#f9f9f9;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-      .ref-img-thumb{max-width:68px;max-height:85px;width:auto;height:auto;object-fit:contain;border-radius:0;border:1px solid #e0e0e0;display:block;background:#fff;}
-      .ref-img-empty{width:68px;height:68px;background:#f9f9f9;border-radius:0;display:inline-flex;align-items:center;justify-content:center;font-size:18px;color:#ccc;border:1px solid #e0e0e0;}
+      .ref-img-cell{width:220px;}
+      .ref-img-thumb{width:200px;height:150px;object-fit:cover;border-radius:4px;border:1px solid #e0e0e0;display:block;background:#fff;}
+      .ref-img-empty{width:200px;height:150px;background:#f9f9f9;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;color:#ccc;border:1px solid #e0e0e0;}
       .item-desc-spec{font-size:9px;color:#333;line-height:1.6;}
       .num-cell{text-align:right;font-size:11px;font-weight:700;color:#111111;white-space:nowrap;}
       .unit-cell{text-align:center;font-size:10px;color:var(--muted);}

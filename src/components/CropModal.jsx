@@ -5,12 +5,12 @@ import 'cropperjs/dist/cropper.css';
 export default function CropModal({ imageSrc, onApply, onClose }) {
   const imgRef = useRef(null);
   const cropperRef = useRef(null);
-  const [activeRatio, setActiveRatio] = useState('free');
+  const [activeRatio, setActiveRatio] = useState('4:3');
 
   useEffect(() => {
     if (imgRef.current) {
       cropperRef.current = new Cropper(imgRef.current, {
-        aspectRatio: NaN,
+        aspectRatio: 4 / 3,
         viewMode: 1,
         autoCropArea: 1.0,
         background: false,
@@ -35,11 +35,11 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
   const handleApply = () => {
     if (cropperRef.current) {
       const canvas = cropperRef.current.getCroppedCanvas({
-        width: 600,
+        width: 800,
         height: 600,
       });
       if (canvas) {
-        const croppedDataUrl = canvas.toDataURL('image/jpeg');
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
         onApply(croppedDataUrl);
       }
     }
@@ -60,10 +60,10 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
         <div className="crop-modal-footer">
           <div className="crop-aspect-ratios" style={{ display: 'flex', gap: '6px', marginRight: 'auto' }}>
             <button
-              className={`crop-btn secondary ratio-btn ${activeRatio === 'free' ? 'active' : ''}`}
-              onClick={() => handleRatioChange(NaN, 'free')}
+              className={`crop-btn secondary ratio-btn ${activeRatio === '4:3' ? 'active' : ''}`}
+              onClick={() => handleRatioChange(4 / 3, '4:3')}
             >
-              Free
+              4:3
             </button>
             <button
               className={`crop-btn secondary ratio-btn ${activeRatio === '1:1' ? 'active' : ''}`}
@@ -76,6 +76,12 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
               onClick={() => handleRatioChange(3 / 4, '3:4')}
             >
               3:4
+            </button>
+            <button
+              className={`crop-btn secondary ratio-btn ${activeRatio === 'free' ? 'active' : ''}`}
+              onClick={() => handleRatioChange(NaN, 'free')}
+            >
+              Free
             </button>
           </div>
           <button className="crop-btn secondary" onClick={onClose}>Cancel</button>

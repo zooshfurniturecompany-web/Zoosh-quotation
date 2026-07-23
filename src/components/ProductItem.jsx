@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AF_DATA, AF_STRUCTURE_KEYS, generateDescription } from '../utils/autofill';
 import { currSymbol, fmtNum } from '../utils/currency';
 
@@ -14,6 +14,30 @@ export default function ProductItem({
   onImageUpload,
   onRemove,
 }) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        onImageUpload(id, event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -149,17 +173,26 @@ export default function ProductItem({
       <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <span className="lbl">Reference Image</span>
-          <label className="ref-box" title="Click to upload reference image">
+          <label 
+            className={`ref-box ${isDragging ? 'dragging' : ''}`} 
+            title="Click or drag image here to upload"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             {photo ? (
-              <img
-                src={photo}
-                alt="Product Preview"
-                style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff' }}
-              />
+              <div className="ref-image-container">
+                <img
+                  src={photo}
+                  alt="Product Preview"
+                  className="ref-preview-img"
+                />
+                <div className="ref-replace-overlay">Replace Image</div>
+              </div>
             ) : (
               <>
                 <div className="ri">🖼</div>
-                <div className="rt">Add Image</div>
+                <div className="rt">Upload / Drag & Drop</div>
               </>
             )}
             <input

@@ -107,10 +107,10 @@ export default function QuotationPreview({ quote }) {
                       <div className="ref-img-empty">🪑</div>
                     )}
                   </td>
-                  <td className="num-cell">{unit ? fmtNum(unit) : '—'}</td>
-                  <td className="num-cell">{qty}</td>
-                  <td className="unit-cell">{utype}</td>
-                  <td className="num-cell">{line ? fmtNum(line) : '—'}</td>
+                  <td className="num-cell" data-label="Unit Price">{unit ? fmtNum(unit) : '—'}</td>
+                  <td className="num-cell" data-label="Quantity">{qty}</td>
+                  <td className="unit-cell" data-label="Unit">{utype}</td>
+                  <td className="num-cell" data-label="Net Total">{line ? fmtNum(line) : '—'}</td>
                 </tr>
               </React.Fragment>
             );
