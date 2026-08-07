@@ -212,7 +212,7 @@ export default function ProductItem({
                 className="inp"
                 value={itemData.name || ''}
                 placeholder="e.g. DINING CHAIR"
-                style={{ fontWeight: 700, textTransform: 'uppercase' }}
+                style={{ fontWeight: 700 }}
                 onChange={(e) => onUpdateField(id, 'name', e.target.value)}
               />
             </div>

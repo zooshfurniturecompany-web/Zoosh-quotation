@@ -94,7 +94,7 @@ export function downloadPDF(quote) {
       table{width:100%;border-collapse:collapse;}
       thead tr th{background:#f9f9f9;padding:7px 12px;font-size:8px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#111111;border-bottom:1px solid #111111;text-align:left;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       thead tr th.num{text-align:right;}
-      .cat-row td{background:#f9f9f9;color:#111111;padding:10px 12px 6px;font-family:var(--font-serif);font-size:10pt;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid #111111;border-top:1px solid #eee;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      .cat-row td{background:#f9f9f9;color:#111111;padding:10px 12px 6px;font-family:var(--font-serif);font-size:10pt;font-weight:700;letter-spacing:.05em;border-bottom:1px solid #111111;border-top:1px solid #eee;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       .cat-row{page-break-after:avoid;break-after:avoid;}
       .item-row td{padding:11px 12px;border-bottom:1px solid #eee;vertical-align:top;}
       .item-row{page-break-inside:avoid;break-inside:avoid;}

@@ -537,7 +537,6 @@ select.inp {
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   border-bottom: 1px solid var(--black);
   border-top: 1px solid var(--border);
 }
