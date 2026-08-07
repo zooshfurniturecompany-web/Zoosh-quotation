@@ -50,7 +50,7 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
       <div className="crop-modal-content">
         <div className="crop-modal-header">
           <h3>Crop Reference Image</h3>
-          <button className="crop-modal-close" onClick={onClose}>&times;</button>
+          <button type="button" className="crop-modal-close" onClick={onClose}>&times;</button>
         </div>
         <div className="crop-modal-body">
           <div className="crop-image-container">
@@ -60,32 +60,36 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
         <div className="crop-modal-footer">
           <div className="crop-aspect-ratios" style={{ display: 'flex', gap: '6px', marginRight: 'auto' }}>
             <button
+              type="button"
               className={`crop-btn secondary ratio-btn ${activeRatio === '4:3' ? 'active' : ''}`}
               onClick={() => handleRatioChange(4 / 3, '4:3')}
             >
               4:3
             </button>
             <button
+              type="button"
               className={`crop-btn secondary ratio-btn ${activeRatio === '1:1' ? 'active' : ''}`}
               onClick={() => handleRatioChange(1, '1:1')}
             >
               1:1
             </button>
             <button
+              type="button"
               className={`crop-btn secondary ratio-btn ${activeRatio === '3:4' ? 'active' : ''}`}
               onClick={() => handleRatioChange(3 / 4, '3:4')}
             >
               3:4
             </button>
             <button
+              type="button"
               className={`crop-btn secondary ratio-btn ${activeRatio === 'free' ? 'active' : ''}`}
               onClick={() => handleRatioChange(NaN, 'free')}
             >
               Free
             </button>
           </div>
-          <button className="crop-btn secondary" onClick={onClose}>Cancel</button>
-          <button className="crop-btn primary" onClick={handleApply}>Apply Crop</button>
+          <button type="button" className="crop-btn secondary" onClick={onClose}>Cancel</button>
+          <button type="button" className="crop-btn primary" onClick={handleApply}>Apply Crop</button>
         </div>
       </div>
     </div>
