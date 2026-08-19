@@ -148,7 +148,16 @@ export default function App() {
       setCurrentView('dashboard');
       setActiveQuote(null);
     } catch (err) {
-      console.error('Failed to save quotation:', err);
+      console.error('Failed to save quotation. Full details:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        status: err?.status,
+        stack: err?.stack,
+        quoteId: quote?.id,
+        quoteNo: quote?.no
+      });
       addToast('Error saving quotation', 'error');
     }
   };

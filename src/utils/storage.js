@@ -179,6 +179,14 @@ export async function saveQuotation(quote) {
   const now = new Date().toISOString();
   let cleanQuote = { ...quote };
 
+  if (quote.itemPhotos) {
+    try {
+      cleanQuote.itemPhotos = await compressQuotationPhotos(quote.itemPhotos);
+    } catch (e) {
+      console.error('Failed to compress quotation photos:', e);
+    }
+  }
+
   if (!quote.id) {
     let seq = parseInt(quote.sequenceNumber, 10);
     if (isNaN(seq)) {
@@ -282,4 +290,70 @@ export async function duplicateQuotation(id) {
 
   await saveQuotationDirect(duplicated);
   return duplicated;
+}
+
+export function compressImage(base64Str, maxWidth = 400, maxHeight = 300, quality = 0.75) {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return resolve(base64Str);
+    }
+    if (!base64Str || !base64Str.startsWith('data:image')) {
+      return resolve(base64Str);
+    }
+
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+      if (height > maxHeight) {
+        width = Math.round((width * maxHeight) / height);
+        height = maxHeight;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressed = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressed);
+    };
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+  });
+}
+
+export async function compressQuotationPhotos(itemPhotos) {
+  if (!itemPhotos) return {};
+  const compressedPhotos = {};
+  const entries = Object.entries(itemPhotos);
+  
+  const promises = entries.map(async ([itemId, photoStr]) => {
+    if (photoStr && photoStr.startsWith('data:image')) {
+      if (photoStr.length > 55000) {
+        try {
+          compressedPhotos[itemId] = await compressImage(photoStr, 400, 300, 0.75);
+        } catch (e) {
+          console.warn('Failed to compress image for item:', itemId, e);
+          compressedPhotos[itemId] = photoStr;
+        }
+      } else {
+        compressedPhotos[itemId] = photoStr;
+      }
+    } else {
+      compressedPhotos[itemId] = photoStr;
+    }
+  });
+
+  await Promise.all(promises);
+  return compressedPhotos;
 }

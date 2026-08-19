@@ -35,11 +35,11 @@ export default function CropModal({ imageSrc, onApply, onClose }) {
   const handleApply = () => {
     if (cropperRef.current) {
       const canvas = cropperRef.current.getCroppedCanvas({
-        width: 800,
-        height: 600,
+        width: 400,
+        height: 300,
       });
       if (canvas) {
-        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
         onApply(croppedDataUrl);
       }
     }
