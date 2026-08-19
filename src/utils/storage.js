@@ -220,7 +220,9 @@ export async function saveQuotation(quote) {
     const nextRev = currentRev + 1;
 
     const isDuplicate = await checkDuplicateSequenceNumber(seq, quote.id);
-    if (isDuplicate) {
+    // Only block if the sequence number has actually changed
+    const originalSeq = parseInt(quote.sequenceNumber, 10);
+    if (seq !== originalSeq && isDuplicate) {
       return Promise.reject(
         new Error(`Quotation number QTN-${seq} already exists. Please choose a unique number.`)
       );
