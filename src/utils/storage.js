@@ -23,7 +23,7 @@ export async function getAllQuotations() {
   if (isSupabaseConfigured) {
     const { data, error } = await supabase
       .from('quotations')
-      .select('*');
+      .select('id, no, "sequenceNumber", revision, date, valid, curr, client, company, items, "itemData", "taxPricing", terms, status, history, "createdAt", "updatedAt"');
     if (error) throw error;
     quotes = data || [];
   } else {
@@ -38,23 +38,33 @@ export async function getAllQuotations() {
   }
 
   // Self-healing migration for legacy records
-  const healed = await Promise.all(
-    quotes.map(async (q) => {
-      if (q.sequenceNumber === undefined || q.revision === undefined) {
-        const match = (q.no || '').match(/^(?:QTN-)?(\d+)(?:-(\d+))?$/i);
-        const seq = match ? parseInt(match[1], 10) : 2445;
-        const rev = match && match[2] ? parseInt(match[2], 10) : 0;
-        const updated = {
-          ...q,
-          sequenceNumber: seq,
-          revision: rev
-        };
-        await saveQuotationDirect(updated);
-        return updated;
+  const healed = [];
+  for (const q of quotes) {
+    if (q.sequenceNumber === undefined || q.sequenceNumber === null || q.revision === undefined || q.revision === null) {
+      try {
+        const fullQ = await getQuotationById(q.id);
+        if (fullQ) {
+          const match = (fullQ.no || '').match(/^(?:QTN-)?(\d+)(?:-(\d+))?$/i);
+          const seq = match ? parseInt(match[1], 10) : 2445;
+          const rev = match && match[2] ? parseInt(match[2], 10) : 0;
+          
+          fullQ.sequenceNumber = seq;
+          fullQ.revision = rev;
+          
+          await saveQuotationDirect(fullQ);
+          healed.push(fullQ);
+        } else {
+          healed.push(q);
+        }
+      } catch (err) {
+        console.error(`Failed to self-heal legacy record ${q.id}:`, err);
+        // Keep the original record in the list even if self-healing fails
+        healed.push(q);
       }
-      return q;
-    })
-  );
+    } else {
+      healed.push(q);
+    }
+  }
 
   return healed;
 }

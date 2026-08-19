@@ -186,9 +186,13 @@ export default function App() {
     }
   };
 
-  const handleDownloadPDF = (quote) => {
+  const handleDownloadPDF = async (quote) => {
     try {
-      downloadPDF(quote);
+      let fullQuote = quote;
+      if (quote?.id && (!quote.itemPhotos || !quote.logoData)) {
+        fullQuote = await getQuotationById(quote.id);
+      }
+      downloadPDF(fullQuote);
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       addToast('Error generating PDF', 'error');
@@ -302,13 +306,25 @@ export default function App() {
         <Dashboard
           quotations={quotations}
           onNew={handleNew}
-          onView={(quote) => {
-            setActiveQuote(quote);
-            setCurrentView('view');
+          onView={async (quote) => {
+            try {
+              const fullQuote = await getQuotationById(quote.id);
+              setActiveQuote(fullQuote);
+              setCurrentView('view');
+            } catch (err) {
+              console.error('Failed to load full quotation details:', err);
+              addToast('Error loading quotation details', 'error');
+            }
           }}
-          onEdit={(quote) => {
-            setActiveQuote(quote);
-            setCurrentView('form');
+          onEdit={async (quote) => {
+            try {
+              const fullQuote = await getQuotationById(quote.id);
+              setActiveQuote(fullQuote);
+              setCurrentView('form');
+            } catch (err) {
+              console.error('Failed to load full quotation details:', err);
+              addToast('Error loading quotation details', 'error');
+            }
           }}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
