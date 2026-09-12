@@ -19,7 +19,9 @@ export function downloadPDF(quote) {
   const qNo = quote.no || 'QTN';
 
   // Calculate totals
-  const gst = parseFloat(quote.taxPricing?.gst) || 0;
+  const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
+    (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
+  const gst = isGstRemoved ? 0 : (parseFloat(quote.taxPricing?.gst) || 0);
   const disc = parseFloat(quote.taxPricing?.disc) || 0;
   const sym = currSymbol(quote.curr);
   let sub = 0;
@@ -52,7 +54,7 @@ export function downloadPDF(quote) {
 
   const discAmt = sub * (disc / 100);
   const taxable = sub - discAmt;
-  const gstAmt = taxable * (gst / 100);
+  const gstAmt = isGstRemoved ? 0 : taxable * (gst / 100);
   const net = taxable + gstAmt;
 
   const termsHtml = (quote.terms?.text || '')
@@ -108,8 +110,8 @@ export function downloadPDF(quote) {
       .doc-totals{padding:12px 28px;display:flex;justify-content:flex-end;border-top:1px solid #111111;}
       .doc-totals-inner{min-width:240px;}
       .dt-row{display:flex;justify-content:space-between;padding:5px 0;font-size:11px;border-bottom:1px solid #eee;}
-      .dt-row:nth-last-child(2){border-bottom:none;border-top:1px solid #111111;margin-top:4px;padding-top:8px;font-family:var(--font-serif);font-size:15px;font-weight:700;}
-      .dt-row:nth-last-child(2) .dt-val{color:#111111;}
+      .dt-row:nth-last-child(2), .dt-row.net-row{border-bottom:none;border-top:1px solid #111111;margin-top:4px;padding-top:8px;font-family:var(--font-serif);font-size:15px;font-weight:700;}
+      .dt-row:nth-last-child(2) .dt-val, .dt-row.net-row .dt-val{color:#111111;}
       .dt-row:last-child{border-bottom:none;border-top:1px dashed #e0e0e0;background:#f9f9f9;padding:6px 0;}
       .dt-row:last-child .dt-label{font-style:italic;}
       .dt-row:last-child .dt-val{font-size:9px;font-weight:400;text-align:right;max-width:200px;line-height:1.4;color:#111111;}
@@ -169,8 +171,14 @@ export function downloadPDF(quote) {
       <div class="doc-totals-inner">
         <div class="dt-row"><span class="dt-label">TOTAL AMOUNT</span><span class="dt-val">${fmtNum(sub)}</span></div>
         ${disc > 0 ? `<div class="dt-row"><span class="dt-label">DISCOUNT (${disc}%)</span><span class="dt-val" style="color:#111111;">− ${fmtNum(discAmt)}</span></div>` : ''}
-        <div class="dt-row"><span class="dt-label">G.S.T AMOUNT ${gst}%</span><span class="dt-val">${fmtNum(gstAmt)}</span></div>
-        <div class="dt-row"><span class="dt-label">NET AMOUNT</span><span class="dt-val" style="color:#111111; font-weight:800;">${fmtNum(net)}</span></div>
+        ${!isGstRemoved ? `<div class="dt-row"><span class="dt-label">G.S.T AMOUNT ${gst}%</span><span class="dt-val">${fmtNum(gstAmt)}</span></div>` : ''}
+        <div class="dt-row net-row">
+          <div style="display:flex;flex-direction:column;align-items:flex-start;">
+            <span class="dt-label" style="color:#111111;">NET AMOUNT${isGstRemoved ? ' (GST EXCLUDED)' : ''}</span>
+            ${isGstRemoved ? `<span style="font-size:8.5px;color:#555555;font-style:italic;font-family:var(--font-sans);font-weight:400;text-transform:none;letter-spacing:0;margin-top:2px;">Total amount is the price which is GST excluded</span>` : ''}
+          </div>
+          <span class="dt-val" style="color:#111111; font-weight:800;">${fmtNum(net)}</span>
+        </div>
         <div class="dt-row" style="border-top:1px dashed #e0e0e0;background:#f9f9f9;padding:8px 0;"><span class="dt-label" style="font-style:italic;">In Words</span><span class="dt-val" style="font-size:9px;color:#111111;text-align:right;max-width:220px;line-height:1.4;">${numberToWords(net)}</span></div>
       </div>
     </div>

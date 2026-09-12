@@ -42,7 +42,9 @@ export default function Dashboard({
 
   // Calculate quote net amount helper
   const calculateTotal = (quote) => {
-    const gst = parseFloat(quote.taxPricing?.gst) || 0;
+    const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
+      (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
+    const gst = isGstRemoved ? 0 : (parseFloat(quote.taxPricing?.gst) || 0);
     const disc = parseFloat(quote.taxPricing?.disc) || 0;
     let sub = 0;
     (quote.items || []).forEach((id) => {
@@ -52,7 +54,7 @@ export default function Dashboard({
     });
     const discAmt = sub * (disc / 100);
     const taxable = sub - discAmt;
-    const gstAmt = taxable * (gst / 100);
+    const gstAmt = isGstRemoved ? 0 : taxable * (gst / 100);
     return taxable + gstAmt;
   };
 
@@ -296,6 +298,11 @@ export default function Dashboard({
                     <td style={{ padding: '14px 16px' }}>{extractLocation(quote.client?.addr)}</td>
                     <td style={{ padding: '14px 16px', textAlign: 'right', fontWeight: 700 }}>
                       {currSymbol(quote.curr)}{fmtNum(total)}
+                      {(quote.taxPricing?.removeGst || (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0)) && (
+                        <div style={{ fontSize: '9px', fontWeight: 500, color: 'var(--muted)', fontStyle: 'italic' }}>
+                          Excl. GST
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                       <span

@@ -2,7 +2,9 @@ import React from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
 
 export default function QuotationPreview({ quote }) {
-  const gst = parseFloat(quote.taxPricing?.gst) || 0;
+  const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
+    (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
+  const gst = isGstRemoved ? 0 : (parseFloat(quote.taxPricing?.gst) || 0);
   const disc = parseFloat(quote.taxPricing?.disc) || 0;
   const sym = currSymbol(quote.curr);
   let sub = 0;
@@ -18,7 +20,7 @@ export default function QuotationPreview({ quote }) {
 
   const discAmt = sub * (disc / 100);
   const taxable = sub - discAmt;
-  const gstAmt = taxable * (gst / 100);
+  const gstAmt = isGstRemoved ? 0 : taxable * (gst / 100);
   const net = taxable + gstAmt;
 
   const notesList = (quote.terms?.text || '')
@@ -131,12 +133,21 @@ export default function QuotationPreview({ quote }) {
               <span className="dt-val" style={{ color: 'var(--black)' }}>− {fmtNum(discAmt)}</span>
             </div>
           )}
-          <div className="dt-row">
-            <span className="dt-label">G.S.T AMOUNT {gst}%</span>
-            <span className="dt-val">{fmtNum(gstAmt)}</span>
-          </div>
-          <div className="dt-row">
-            <span className="dt-label">NET AMOUNT</span>
+          {!isGstRemoved && (
+            <div className="dt-row">
+              <span className="dt-label">G.S.T AMOUNT {gst}%</span>
+              <span className="dt-val">{fmtNum(gstAmt)}</span>
+            </div>
+          )}
+          <div className="dt-row net-row">
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <span className="dt-label">NET AMOUNT {isGstRemoved ? '(GST EXCLUDED)' : ''}</span>
+              {isGstRemoved && (
+                <span style={{ fontSize: '10px', color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--font-sans)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginTop: '2px' }}>
+                  Total amount is the price which is GST excluded
+                </span>
+              )}
+            </div>
             <span className="dt-val" style={{ color: 'var(--black)', fontWeight: 800 }}>{fmtNum(net)}</span>
           </div>
           <div className="dt-row" style={{ borderTop: '1px dashed var(--border)', background: 'var(--near-white)', padding: '8px 0' }}>

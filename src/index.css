@@ -614,7 +614,8 @@ select.inp {
   font-size: 13px;
   border-bottom: 1px solid var(--border);
 }
-.dt-row:nth-last-child(2) {
+.dt-row:nth-last-child(2),
+.dt-row.net-row {
   border-bottom: none;
   border-top: 1px solid var(--black);
   margin-top: 8px;
@@ -623,7 +624,8 @@ select.inp {
   font-size: 18px;
   font-weight: 700;
 }
-.dt-row:nth-last-child(2) .dt-val {
+.dt-row:nth-last-child(2) .dt-val,
+.dt-row.net-row .dt-val {
   color: var(--black);
 }
 .dt-row:last-child {

@@ -113,8 +113,13 @@ export default function App() {
       itemPhotos: {},
       afState: {},
       taxPricing: prevQuote?.taxPricing 
-        ? { ...prevQuote.taxPricing, gst: prevQuote.taxPricing.gst || '18', disc: prevQuote.taxPricing.disc || '0' } 
-        : { gst: '18', disc: '0' },
+        ? { 
+            ...prevQuote.taxPricing, 
+            gst: (prevQuote.taxPricing.gst !== undefined && prevQuote.taxPricing.gst !== '') ? prevQuote.taxPricing.gst : '18', 
+            disc: prevQuote.taxPricing.disc || '0',
+            removeGst: Boolean(prevQuote.taxPricing.removeGst)
+          } 
+        : { gst: '18', disc: '0', removeGst: false },
       terms: {
         ...(prevQuote?.terms || {}),
         signName: prevQuote?.terms?.signName || 'LISHA',

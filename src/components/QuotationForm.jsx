@@ -143,7 +143,9 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
 
   // Totals calculations
   const calculateTotals = () => {
-    const gst = parseFloat(quote.taxPricing?.gst) || 0;
+    const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
+      (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
+    const gst = isGstRemoved ? 0 : (parseFloat(quote.taxPricing?.gst) || 0);
     const disc = parseFloat(quote.taxPricing?.disc) || 0;
     let sub = 0;
     
@@ -155,13 +157,13 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
 
     const discAmt = sub * (disc / 100);
     const taxable = sub - discAmt;
-    const gstAmt = taxable * (gst / 100);
+    const gstAmt = isGstRemoved ? 0 : taxable * (gst / 100);
     const net = taxable + gstAmt;
 
-    return { sub, discAmt, gstAmt, net };
+    return { sub, discAmt, gstAmt, net, isGstRemoved };
   };
 
-  const { sub, discAmt, gstAmt, net } = calculateTotals();
+  const { sub, discAmt, gstAmt, net, isGstRemoved } = calculateTotals();
   const sym = currSymbol(quote.curr);
 
   // Submit Quote changes
@@ -437,22 +439,91 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
       {/* Pricing and tax Section */}
       <div className="card">
         <div className="card-title">💰 Tax & Pricing</div>
-        <div className="g3" style={{ marginBottom: '18px' }}>
+        <div className="g3" style={{ marginBottom: '18px', alignItems: 'flex-start' }}>
           <div>
-            <span className="lbl">GST / Tax (%)</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span className="lbl" style={{ marginBottom: 0 }}>GST / Tax (%)</span>
+              <button
+                type="button"
+                className="crop-btn"
+                style={{
+                  padding: '3px 10px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  borderRadius: '3px',
+                  border: isGstRemoved ? '1px solid var(--black)' : '1px solid var(--border)',
+                  background: isGstRemoved ? 'var(--black)' : 'var(--near-white)',
+                  color: isGstRemoved ? 'var(--white)' : 'var(--black)',
+                  transition: 'all 0.15s ease',
+                }}
+                onClick={() => {
+                  setQuote((prev) => {
+                    const willRemove = !isGstRemoved;
+                    return {
+                      ...prev,
+                      taxPricing: {
+                        ...prev.taxPricing,
+                        removeGst: willRemove,
+                        gst: willRemove ? '0' : (prev.taxPricing?.savedGst && prev.taxPricing?.savedGst !== '0' ? prev.taxPricing.savedGst : '18'),
+                        savedGst: willRemove 
+                          ? (prev.taxPricing?.gst && prev.taxPricing?.gst !== '0' ? prev.taxPricing.gst : '18') 
+                          : prev.taxPricing?.savedGst,
+                      },
+                    };
+                  });
+                }}
+              >
+                {isGstRemoved ? '✓ Restore GST (18%)' : '− Remove GST'}
+              </button>
+            </div>
             <input
               className="inp"
               type="number"
-              value={quote.taxPricing?.gst || '18'}
+              value={isGstRemoved ? '0' : (quote.taxPricing?.gst ?? '18')}
               min="0"
               max="100"
-              onChange={(e) =>
+              disabled={isGstRemoved}
+              placeholder={isGstRemoved ? '0 (GST Excluded)' : '18'}
+              onChange={(e) => {
+                const val = e.target.value;
+                const num = parseFloat(val);
                 setQuote((prev) => ({
                   ...prev,
-                  taxPricing: { ...prev.taxPricing, gst: e.target.value },
-                }))
-              }
+                  taxPricing: { 
+                    ...prev.taxPricing, 
+                    gst: val,
+                    removeGst: val === '0' || num === 0,
+                  },
+                }));
+              }}
             />
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '6px', fontSize: '11px', cursor: 'pointer', color: isGstRemoved ? 'var(--black)' : 'var(--muted)', fontWeight: isGstRemoved ? 700 : 500 }}>
+              <input
+                type="checkbox"
+                checked={isGstRemoved}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setQuote((prev) => ({
+                    ...prev,
+                    taxPricing: {
+                      ...prev.taxPricing,
+                      removeGst: checked,
+                      gst: checked ? '0' : (prev.taxPricing?.savedGst && prev.taxPricing?.savedGst !== '0' ? prev.taxPricing.savedGst : '18'),
+                      savedGst: checked 
+                        ? (prev.taxPricing?.gst && prev.taxPricing?.gst !== '0' ? prev.taxPricing.gst : '18') 
+                        : prev.taxPricing?.savedGst,
+                    },
+                  }));
+                }}
+              />
+              Remove GST Amount (GST Excluded)
+            </label>
+            {isGstRemoved && (
+              <div style={{ fontSize: '11px', color: 'var(--black)', background: 'var(--near-white)', padding: '6px 8px', borderLeft: '2px solid var(--black)', marginTop: '8px', lineHeight: 1.4 }}>
+                ℹ️ <strong>GST Removed:</strong> Quotation will state <em>"Total amount is the price which is GST excluded"</em>.
+              </div>
+            )}
           </div>
           <div>
             <span className="lbl">Discount (%)</span>
@@ -483,12 +554,21 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
                 <span className="t-disc">− {sym}{fmtNum(discAmt)}</span>
               </div>
             )}
-            <div className="t-row">
-              <span className="t-label">GST / Tax ({quote.taxPricing?.gst || 0}%)</span>
-              <span className="t-val">{sym}{fmtNum(gstAmt)}</span>
-            </div>
-            <div className="t-row">
-              <span className="t-label">Net Amount</span>
+            {!isGstRemoved && (
+              <div className="t-row">
+                <span className="t-label">GST / Tax ({quote.taxPricing?.gst || 0}%)</span>
+                <span className="t-val">{sym}{fmtNum(gstAmt)}</span>
+              </div>
+            )}
+            <div className="t-row" style={{ alignItems: 'flex-start' }}>
+              <div>
+                <span className="t-label">Net Amount {isGstRemoved ? '(GST Excluded)' : ''}</span>
+                {isGstRemoved && (
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', fontWeight: 500, marginTop: '2px' }}>
+                    Total amount is the price which is GST excluded
+                  </div>
+                )}
+              </div>
               <span className="t-val" style={{ color: 'var(--black)', fontSize: '16px', fontWeight: 800 }}>
                 {sym}{fmtNum(net)}
               </span>
