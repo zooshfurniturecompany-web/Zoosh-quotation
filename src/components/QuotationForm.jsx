@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import ProductItem from './ProductItem';
 import CropModal from './CropModal';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
+import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
 export default function QuotationForm({ initialQuote, onSave, onCancel }) {
-  const [quote, setQuote] = useState(initialQuote);
+  const [quote, setQuote] = useState(() => ({
+    ...initialQuote,
+    logoData: initialQuote?.logoData || DEFAULT_ZOOSH_LOGO,
+  }));
   const [cropState, setCropState] = useState({ itemId: null, src: null });
   const [itemCounter, setItemCounter] = useState(0);
 
@@ -169,7 +173,10 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
   // Submit Quote changes
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSave(quote);
+    onSave({
+      ...quote,
+      logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
+    });
   };
 
   return (
@@ -197,15 +204,12 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
         <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <span className="lbl">Company Logo</span>
-            <div className="logo-uploader" onClick={() => document.getElementById('logo-file-input').click()}>
-              {quote.logoData ? (
-                <img src={quote.logoData} alt="Logo preview" />
-              ) : (
-                <>
-                  <div className="up-icon">🏭</div>
-                  <div className="up-txt">Upload Logo</div>
-                </>
-              )}
+            <div
+              className="logo-uploader"
+              onClick={() => document.getElementById('logo-file-input').click()}
+              title="Official ZOOSH Logo (Click to replace if needed)"
+            >
+              <img src={quote.logoData || DEFAULT_ZOOSH_LOGO} alt="Official ZOOSH Logo" />
             </div>
             <input
               type="file"

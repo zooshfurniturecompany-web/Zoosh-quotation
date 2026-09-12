@@ -1,5 +1,6 @@
 import React from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
+import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
 export default function QuotationPreview({ quote }) {
   const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
@@ -27,10 +28,9 @@ export default function QuotationPreview({ quote }) {
     .split('\n')
     .filter(t => t.trim());
 
-  const logoHtml = quote.logoData ? (
-    <img src={quote.logoData} className="doc-logo-img" alt="Company Logo" />
-  ) : (
-    <div className="doc-logo-placeholder">{(quote.company?.name || 'LOGO').split(' ')[0]}</div>
+  const logoSrc = quote.logoData || DEFAULT_ZOOSH_LOGO;
+  const logoHtml = (
+    <img src={logoSrc} className="doc-logo-img" alt="ZOOSH Logo" />
   );
 
   return (

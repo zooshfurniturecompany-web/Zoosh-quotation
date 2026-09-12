@@ -13,6 +13,7 @@ import {
 } from './utils/storage';
 import { downloadPDF } from './utils/pdfGenerator';
 import { supabase, isSupabaseConfigured } from './utils/supabaseClient';
+import { DEFAULT_ZOOSH_LOGO } from './utils/logo';
 
 export default function App() {
   const [quotations, setQuotations] = useState([]);
@@ -107,7 +108,7 @@ export default function App() {
         email: prevQuote?.company?.email || 'zooshfurniturecompany@gmail.com',
         web: prevQuote?.company?.web || 'www.zoosh.in'
       },
-      logoData: prevQuote?.logoData || null,
+      logoData: DEFAULT_ZOOSH_LOGO,
       items: [],
       itemData: {},
       itemPhotos: {},
@@ -135,7 +136,11 @@ export default function App() {
   const handleSave = async (quote) => {
     try {
       const isEdit = !!quote.id;
-      const saved = await saveQuotation(quote);
+      const quoteToSave = {
+        ...quote,
+        logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
+      };
+      const saved = await saveQuotation(quoteToSave);
       
       addToast(
         isEdit ? 'Quotation Updated Successfully' : 'Quotation Saved Successfully',
@@ -197,6 +202,9 @@ export default function App() {
       let fullQuote = quote;
       if (quote?.id && (!quote.itemPhotos || !quote.logoData)) {
         fullQuote = await getQuotationById(quote.id);
+      }
+      if (!fullQuote.logoData) {
+        fullQuote = { ...fullQuote, logoData: DEFAULT_ZOOSH_LOGO };
       }
       downloadPDF(fullQuote);
     } catch (err) {
@@ -315,6 +323,9 @@ export default function App() {
           onView={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
+              if (fullQuote && !fullQuote.logoData) {
+                fullQuote.logoData = DEFAULT_ZOOSH_LOGO;
+              }
               setActiveQuote(fullQuote);
               setCurrentView('view');
             } catch (err) {
@@ -325,6 +336,9 @@ export default function App() {
           onEdit={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
+              if (fullQuote && !fullQuote.logoData) {
+                fullQuote.logoData = DEFAULT_ZOOSH_LOGO;
+              }
               setActiveQuote(fullQuote);
               setCurrentView('form');
             } catch (err) {
@@ -415,6 +429,7 @@ function normalizeImportedQuotation(parsed) {
   }
 
   normalized.id = normalized.id || Date.now().toString() + Math.random().toString(36).substr(2, 5);
+  normalized.logoData = normalized.logoData || DEFAULT_ZOOSH_LOGO;
   normalized.items = normalized.items || [];
   normalized.itemData = normalized.itemData || {};
   normalized.itemPhotos = normalized.itemPhotos || {};

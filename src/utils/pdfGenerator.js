@@ -1,4 +1,5 @@
 import { currSymbol, fmtNum, numberToWords } from './currency';
+import { DEFAULT_ZOOSH_LOGO } from './logo';
 
 function getSanitizedFilename(quote) {
   const clientName = quote.client?.name || 'Client';
@@ -63,8 +64,9 @@ export function downloadPDF(quote) {
     .map(t => `<li>${t.trim()}</li>`)
     .join('');
 
-  const logoHtml = quote.logoData
-    ? `<img src="${quote.logoData}" class="doc-logo-img">`
+  const logoSrc = quote.logoData || DEFAULT_ZOOSH_LOGO;
+  const logoHtml = logoSrc
+    ? `<img src="${logoSrc}" class="doc-logo-img" alt="ZOOSH Logo">`
     : `<div class="doc-logo-placeholder">${(quote.company?.name || 'LOGO').split(' ')[0]}</div>`;
 
   const win = window.open('', '_blank');
@@ -75,6 +77,7 @@ export function downloadPDF(quote) {
     <style>
       *{box-sizing:border-box;margin:0;padding:0;}
       :root{
+        --black:#111111;
         --dark:#111111;
         --gold:#000000;
         --light:#f9f9f9;
@@ -86,7 +89,8 @@ export function downloadPDF(quote) {
       body{font-family:var(--font-sans);font-size:10pt;color:#111111;background:#fff;}
       .wrap{max-width:860px;margin:0 auto;padding:0;}
       .doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding:24px 28px 16px;border-bottom:1px solid #111111;}
-      .doc-logo-img{height:52px;max-width:130px;object-fit:contain;filter:grayscale(100%);}
+      .doc-logo-area{display:flex;align-items:center;gap:16px;}
+      .doc-logo-img{height:52px;max-width:140px;object-fit:contain;}
       .doc-logo-placeholder{font-family:var(--font-serif);font-size:30px;font-weight:700;letter-spacing:.1em;color:#111111;}
       .doc-company{font-size:9px;color:var(--muted);line-height:1.7;margin-top:3px;}
       .doc-meta-right{text-align:right;}

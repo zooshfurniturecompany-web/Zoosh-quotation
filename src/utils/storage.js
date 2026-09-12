@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { DEFAULT_ZOOSH_LOGO } from './logo';
 
 const DB_NAME = 'zoosh_quotation_db';
 const DB_VERSION = 1;
@@ -254,6 +255,7 @@ export async function saveQuotation(quote) {
     };
   }
 
+  cleanQuote.logoData = cleanQuote.logoData || DEFAULT_ZOOSH_LOGO;
   return saveQuotationDirect(cleanQuote);
 }
 
@@ -336,6 +338,7 @@ export async function duplicateQuotation(id) {
 
   const duplicated = {
     ...quote,
+    logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
     id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
     no: newNo,
     sequenceNumber: seq,
