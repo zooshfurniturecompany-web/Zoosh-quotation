@@ -219,15 +219,14 @@ export async function saveQuotation(quote) {
   } else {
     const match = (quote.no || '').match(/^(?:QTN-)?(\d+)(?:-(\d+))?$/i);
     let seq = parseInt(quote.sequenceNumber, 10) || 2445;
-    let currentRev = parseInt(quote.revision, 10) || 0;
+    let rev = parseInt(quote.revision, 10) || 0;
 
     if (match) {
       seq = parseInt(match[1], 10);
       if (match[2] !== undefined) {
-        currentRev = parseInt(match[2], 10);
+        rev = parseInt(match[2], 10);
       }
     }
-    const nextRev = currentRev + 1;
 
     const isDuplicate = await checkDuplicateSequenceNumber(seq, quote.id);
     // Only block if the sequence number has actually changed
@@ -238,18 +237,18 @@ export async function saveQuotation(quote) {
       );
     }
 
-    const newNo = `QTN-${seq}-${String(nextRev).padStart(2, '0')}`;
+    const currentNo = quote.no || `QTN-${seq}-${String(rev).padStart(2, '0')}`;
     const newHistoryEntry = {
-      revision: String(nextRev).padStart(2, '0'),
+      revision: String(rev).padStart(2, '0'),
       timestamp: now,
       type: 'updated'
     };
 
     cleanQuote = {
       ...quote,
-      no: newNo,
+      no: currentNo,
       sequenceNumber: seq,
-      revision: nextRev,
+      revision: rev,
       updatedAt: now,
       history: [...(quote.history || []), newHistoryEntry]
     };
@@ -278,26 +277,77 @@ export async function deleteQuotation(id) {
   }
 }
 
+async function getMaxRevisionForSequence(seq) {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from('quotations')
+      .select('revision, no')
+      .eq('sequenceNumber', seq);
+    if (error) throw error;
+    let maxRev = -1;
+    (data || []).forEach((q) => {
+      let rev = parseInt(q.revision, 10);
+      if (isNaN(rev)) {
+        const match = (q.no || '').match(/^(?:QTN-)?\d+(?:-(\d+))?$/i);
+        if (match && match[1] !== undefined) {
+          rev = parseInt(match[1], 10);
+        }
+      }
+      if (!isNaN(rev) && rev > maxRev) {
+        maxRev = rev;
+      }
+    });
+    return maxRev >= 0 ? maxRev : 0;
+  } else {
+    const all = await getAllQuotations();
+    let maxRev = -1;
+    all.forEach((q) => {
+      if (parseInt(q.sequenceNumber, 10) === seq) {
+        let rev = parseInt(q.revision, 10);
+        if (isNaN(rev)) {
+          const match = (q.no || '').match(/^(?:QTN-)?\d+(?:-(\d+))?$/i);
+          if (match && match[1] !== undefined) {
+            rev = parseInt(match[1], 10);
+          }
+        }
+        if (!isNaN(rev) && rev > maxRev) {
+          maxRev = rev;
+        }
+      }
+    });
+    return maxRev >= 0 ? maxRev : 0;
+  }
+}
+
 export async function duplicateQuotation(id) {
   const quote = await getQuotationById(id);
   if (!quote) throw new Error('Quotation not found');
 
-  const maxSeq = await getMaxSequenceNumber();
-  const seq = maxSeq + 1;
+  let seq = parseInt(quote.sequenceNumber, 10);
+  if (isNaN(seq)) {
+    const match = (quote.no || '').match(/^(?:QTN-)?(\d+)/i);
+    seq = match ? parseInt(match[1], 10) : 2445;
+  }
+
+  const maxRev = await getMaxRevisionForSequence(seq);
+  const nextRev = maxRev + 1;
   const now = new Date().toISOString();
-  const newNo = `QTN-${seq}-00`;
+  const newNo = `QTN-${seq}-${String(nextRev).padStart(2, '0')}`;
 
   const duplicated = {
     ...quote,
-    id: Date.now().toString(),
+    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
     no: newNo,
     sequenceNumber: seq,
-    revision: 0,
+    revision: nextRev,
     date: new Date().toISOString().split('T')[0],
     createdAt: now,
     updatedAt: now,
     status: 'Draft',
-    history: [{ revision: '00', timestamp: now, type: 'created' }]
+    history: [
+      ...(quote.history || []),
+      { revision: String(nextRev).padStart(2, '0'), timestamp: now, type: 'duplicated' }
+    ]
   };
 
   await saveQuotationDirect(duplicated);

@@ -341,8 +341,9 @@ export default function Dashboard({
                           className="del-btn"
                           style={{ borderColor: 'var(--border)', color: 'var(--black)' }}
                           onClick={() => onDuplicate(quote.id)}
+                          title="Duplicate this quotation as a new revision"
                         >
-                          Copy
+                          Duplicate
                         </button>
                         <button
                           className="del-btn"

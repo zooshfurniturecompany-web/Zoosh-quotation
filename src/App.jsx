@@ -171,7 +171,7 @@ export default function App() {
   const handleDuplicate = async (id) => {
     try {
       const duplicated = await duplicateQuotation(id);
-      addToast('Quotation Duplicated Successfully', 'success');
+      addToast(`Quotation Duplicated as ${duplicated.no}`, 'success');
       await loadQuotations();
     } catch (err) {
       console.error('Failed to duplicate quotation:', err);
