@@ -2,21 +2,22 @@ import React, { useState, useEffect } from 'react';
 import ProductItem from './ProductItem';
 import CropModal from './CropModal';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
+import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
 export default function QuotationForm({ initialQuote, onSave, onCancel }) {
-  const [quote, setQuote] = useState(() => {
-    const q = { ...initialQuote };
-    if (q.company) {
-      const cleanCompany = { ...q.company };
-      if (cleanCompany.name && cleanCompany.name.toLowerCase().includes('zoosh')) cleanCompany.name = '';
-      if (cleanCompany.email && cleanCompany.email.toLowerCase().includes('zoosh')) cleanCompany.email = '';
-      if (cleanCompany.web && cleanCompany.web.toLowerCase().includes('zoosh')) cleanCompany.web = '';
-      if (cleanCompany.tag && cleanCompany.tag.toLowerCase().includes('zoosh')) cleanCompany.tag = '';
-      q.company = cleanCompany;
+  const [quote, setQuote] = useState(() => ({
+    ...initialQuote,
+    logoData: initialQuote?.logoData || DEFAULT_ZOOSH_LOGO,
+    company: {
+      name: initialQuote?.company?.name || 'ZOOSH',
+      tag: initialQuote?.company?.tag || 'Custom Furniture Company',
+      addr: initialQuote?.company?.addr || 'Palakkad, Kerala, India',
+      phone: initialQuote?.company?.phone || '+91 9567193992',
+      email: initialQuote?.company?.email || 'zooshfurniturecompany@gmail.com',
+      web: initialQuote?.company?.web || 'www.zoosh.in',
+      ...(initialQuote?.company || {}),
     }
-    q.logoData = null;
-    return q;
-  });
+  }));
   const [cropState, setCropState] = useState({ itemId: null, src: null });
   const [itemCounter, setItemCounter] = useState(0);
 
@@ -39,6 +40,19 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
       }
     }
   }, [quote.id]);
+
+  // Company logo upload
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setQuote((prev) => ({ ...prev, logoData: event.target.result }));
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = '';
+  };
 
   // Company details updates
   const handleCompanyChange = (field, val) => {
@@ -168,17 +182,9 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
   // Submit Quote changes
   const handleSubmit = (e) => {
     e.preventDefault();
-    const cleanCompany = { ...(quote.company || {}) };
-    if (cleanCompany.name && cleanCompany.name.toLowerCase().includes('zoosh')) cleanCompany.name = '';
-    if (cleanCompany.email && cleanCompany.email.toLowerCase().includes('zoosh')) cleanCompany.email = '';
-    if (cleanCompany.web && cleanCompany.web.toLowerCase().includes('zoosh')) cleanCompany.web = '';
-    if (cleanCompany.tag && cleanCompany.tag.toLowerCase().includes('zoosh')) cleanCompany.tag = '';
-    if (!cleanCompany.addr) cleanCompany.addr = 'Palakkad, Kerala, India';
-
     onSave({
       ...quote,
-      company: cleanCompany,
-      logoData: null,
+      logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
     });
   };
 
@@ -203,32 +209,76 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
 
       {/* Company Section */}
       <div className="card">
-        <div className="card-title">🏢 Company Details (Address only is shown on Quotation)</div>
-        <div style={{ maxWidth: '640px' }}>
-          <div style={{ marginBottom: '12px' }}>
-            <span className="lbl">Address</span>
+        <div className="card-title">🏢 Your Company Details</div>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <span className="lbl">Company Logo</span>
+            <div
+              className="logo-uploader"
+              onClick={() => document.getElementById('logo-file-input').click()}
+              title="Official ZOOSH Logo (Click to replace if needed)"
+            >
+              <img src={quote.logoData || DEFAULT_ZOOSH_LOGO} alt="Official ZOOSH Logo" />
+            </div>
             <input
-              className="inp"
-              value={quote.company?.addr || ''}
-              onChange={(e) => handleCompanyChange('addr', e.target.value)}
-              placeholder="e.g. Palakkad, Kerala, India"
+              type="file"
+              id="logo-file-input"
+              accept="image/*"
+              style={{ display: 'none' }}
+              onChange={handleLogoUpload}
             />
           </div>
-          <div className="g2">
-            <div>
-              <span className="lbl">Phone (Optional)</span>
-              <input
-                className="inp"
-                value={quote.company?.phone || ''}
-                onChange={(e) => handleCompanyChange('phone', e.target.value)}
-              />
+          <div style={{ flex: 1, minWidth: '220px' }}>
+            <div className="g2" style={{ marginBottom: '10px' }}>
+              <div>
+                <span className="lbl">Company / Brand Name</span>
+                <input
+                  className="inp"
+                  value={quote.company?.name || ''}
+                  onChange={(e) => handleCompanyChange('name', e.target.value)}
+                />
+              </div>
+              <div>
+                <span className="lbl">Tagline / Type</span>
+                <input
+                  className="inp"
+                  value={quote.company?.tag || ''}
+                  onChange={(e) => handleCompanyChange('tag', e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <span className="lbl">Email (Optional)</span>
+            <div className="g3">
+              <div>
+                <span className="lbl">Address</span>
+                <input
+                  className="inp"
+                  value={quote.company?.addr || ''}
+                  onChange={(e) => handleCompanyChange('addr', e.target.value)}
+                />
+              </div>
+              <div>
+                <span className="lbl">Phone</span>
+                <input
+                  className="inp"
+                  value={quote.company?.phone || ''}
+                  onChange={(e) => handleCompanyChange('phone', e.target.value)}
+                />
+              </div>
+              <div>
+                <span className="lbl">Email</span>
+                <input
+                  className="inp"
+                  value={quote.company?.email || ''}
+                  onChange={(e) => handleCompanyChange('email', e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: '10px' }}>
+              <span className="lbl">Website</span>
               <input
                 className="inp"
-                value={(quote.company?.email && !quote.company.email.toLowerCase().includes('zoosh')) ? quote.company.email : ''}
-                onChange={(e) => handleCompanyChange('email', e.target.value)}
+                value={quote.company?.web || ''}
+                onChange={(e) => handleCompanyChange('web', e.target.value)}
               />
             </div>
           </div>

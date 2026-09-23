@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
+import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
-export default function QuotationPreview({ quote }) {
+export default function QuotationPreview({ quote, onDownloadPDF }) {
+  const [isBranded, setIsBranded] = useState(true);
+
   const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
     (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
   const gst = isGstRemoved ? 0 : (parseFloat(quote.taxPricing?.gst) || 0);
@@ -27,29 +30,132 @@ export default function QuotationPreview({ quote }) {
     .split('\n')
     .filter(t => t.trim());
 
+  const logoSrc = isBranded ? (quote.logoData || DEFAULT_ZOOSH_LOGO) : null;
+
   return (
-    <div id="quotation-doc">
-      {/* HEADER */}
-      <div className="doc-header">
-        <div className="doc-company-info">
-          <div className="doc-company-address" style={{ fontSize: '12px', color: 'var(--near-black)', lineHeight: 1.6, maxWidth: '340px', fontWeight: 500 }}>
-            {quote.company?.addr || 'Palakkad, Kerala, India'}
+    <div>
+      {/* Brand Selection Toggle Bar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Preview Format:
+          </span>
+          <div style={{ display: 'inline-flex', border: '1px solid var(--black)', borderRadius: 0 }}>
+            <button
+              type="button"
+              style={{
+                padding: '6px 14px',
+                fontSize: '11px',
+                fontWeight: 700,
+                background: isBranded ? 'var(--black)' : 'var(--white)',
+                color: isBranded ? 'var(--white)' : 'var(--black)',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+              onClick={() => setIsBranded(true)}
+            >
+              🌟 With ZOOSH Brand
+            </button>
+            <button
+              type="button"
+              style={{
+                padding: '6px 14px',
+                fontSize: '11px',
+                fontWeight: 700,
+                background: !isBranded ? 'var(--black)' : 'var(--white)',
+                color: !isBranded ? 'var(--white)' : 'var(--black)',
+                border: 'none',
+                borderLeft: '1px solid var(--black)',
+                cursor: 'pointer'
+              }}
+              onClick={() => setIsBranded(false)}
+            >
+              🏢 Unbranded (Address Only)
+            </button>
           </div>
         </div>
-        <div className="doc-meta-right">
-          <div className="doc-no">Doc. No. : {quote.no || 'QTN'}</div>
-          <div className="doc-to">
-            To, &nbsp;<strong>{quote.client?.name || '—'}</strong>
-            {quote.client?.co && <><br />{quote.client.co}</>}
-            <br />Date: {quote.date || ''}
+
+        {onDownloadPDF && (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="nav-btn gold"
+              style={{ background: 'var(--black)', color: 'var(--white)', padding: '8px 16px', fontSize: '11px' }}
+              onClick={() => onDownloadPDF(quote, true)}
+            >
+              ⬇ PDF (With Brand)
+            </button>
+            <button
+              className="nav-btn outline"
+              style={{ background: 'var(--white)', color: 'var(--black)', border: '1px solid var(--black)', padding: '8px 16px', fontSize: '11px' }}
+              onClick={() => onDownloadPDF(quote, false)}
+            >
+              ⬇ PDF (Unbranded)
+            </button>
           </div>
-          {quote.valid && (
-            <div style={{ fontSize: '11px', color: 'var(--gray)', marginTop: '6px' }}>
-              Valid Until: {quote.valid}
-            </div>
-          )}
-        </div>
+        )}
       </div>
+
+      <div id="quotation-doc">
+        {/* HEADER */}
+        {isBranded ? (
+          <>
+            <div className="doc-header">
+              <div className="doc-logo-area">
+                {logoSrc && <img src={logoSrc} className="doc-logo-img" alt="ZOOSH Logo" />}
+                <div>
+                  <div style={{ fontFamily: 'var(--font-serif)', fontSize: '14px', fontWeight: 700, color: 'var(--black)', lineHeight: 1.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    {quote.company?.name || 'ZOOSH'}
+                  </div>
+                  <div className="doc-company">{quote.company?.addr || 'Palakkad, Kerala, India'}</div>
+                  <div style={{ fontSize: '9px', color: 'var(--gray)', marginTop: '4px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                    {quote.company?.tag || 'Custom Furniture Company'}
+                  </div>
+                </div>
+              </div>
+              <div className="doc-meta-right">
+                <div className="doc-no">Doc. No. : {quote.no || 'QTN'}</div>
+                <div className="doc-to">
+                  To, &nbsp;<strong>{quote.client?.name || '—'}</strong>
+                  {quote.client?.co && <><br />{quote.client.co}</>}
+                  <br />Date: {quote.date || ''}
+                </div>
+                {quote.valid && (
+                  <div style={{ fontSize: '11px', color: 'var(--gray)', marginTop: '6px' }}>
+                    Valid Until: {quote.valid}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* CONTACT BAR */}
+            <div className="doc-contact">
+              <span>🌐 {quote.company?.web || 'www.zoosh.in'}</span>
+              <span>📞 {quote.company?.phone || '+91 9567193992'}</span>
+              <span>✉ {quote.company?.email || 'zooshfurniturecompany@gmail.com'}</span>
+            </div>
+          </>
+        ) : (
+          <div className="doc-header">
+            <div className="doc-company-info">
+              <div className="doc-company-address" style={{ fontSize: '12px', color: 'var(--near-black)', lineHeight: 1.6, maxWidth: '340px', fontWeight: 500 }}>
+                {quote.company?.addr || 'Palakkad, Kerala, India'}
+              </div>
+            </div>
+            <div className="doc-meta-right">
+              <div className="doc-no">Doc. No. : {quote.no || 'QTN'}</div>
+              <div className="doc-to">
+                To, &nbsp;<strong>{quote.client?.name || '—'}</strong>
+                {quote.client?.co && <><br />{quote.client.co}</>}
+                <br />Date: {quote.date || ''}
+              </div>
+              {quote.valid && (
+                <div style={{ fontSize: '11px', color: 'var(--gray)', marginTop: '6px' }}>
+                  Valid Until: {quote.valid}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
       {/* TABLE */}
       <table className="doc-table">
@@ -192,14 +298,23 @@ export default function QuotationPreview({ quote }) {
       {/* FOOTER */}
       <div className="doc-footer">
         <div className="doc-footer-brand">
-          QUOTATION <span>|</span>
+          {isBranded ? (
+            <>
+              {(quote.company?.name || 'ZOOSH').split(' ').slice(0, 2).join(' ')} <span>|</span>
+            </>
+          ) : (
+            <>
+              QUOTATION <span>|</span>
+            </>
+          )}
         </div>
         <div className="doc-footer-sign">
-          <strong>{quote.terms?.signName || ''}</strong><br />
-          {quote.terms?.signDesg || ''}<br />
-          {(quote.company?.phone && !quote.company.phone.toLowerCase().includes('zoosh')) ? quote.company.phone : ''}
+          <strong>{isBranded ? (quote.terms?.signName || 'LISHA') : (quote.terms?.signName || '')}</strong><br />
+          {isBranded ? (quote.terms?.signDesg || 'Administrator') : (quote.terms?.signDesg || '')}<br />
+          {(quote.company?.phone && (isBranded || !quote.company.phone.toLowerCase().includes('zoosh'))) ? quote.company.phone : ''}
         </div>
       </div>
     </div>
+  </div>
   );
 }

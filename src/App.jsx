@@ -12,28 +12,18 @@ import {
   getNextSequentialNumber,
 } from './utils/storage';
 import { downloadPDF } from './utils/pdfGenerator';
+import { DEFAULT_ZOOSH_LOGO } from './utils/logo';
 import { supabase, isSupabaseConfigured } from './utils/supabaseClient';
 
 export function sanitizeQuote(quote) {
-  if (!quote) return quote;
-  const cleanCompany = { ...(quote.company || {}) };
-  if (cleanCompany.name && cleanCompany.name.toLowerCase().includes('zoosh')) cleanCompany.name = '';
-  if (cleanCompany.email && cleanCompany.email.toLowerCase().includes('zoosh')) cleanCompany.email = '';
-  if (cleanCompany.web && cleanCompany.web.toLowerCase().includes('zoosh')) cleanCompany.web = '';
-  if (cleanCompany.tag && cleanCompany.tag.toLowerCase().includes('zoosh')) cleanCompany.tag = '';
-  if (!cleanCompany.addr) cleanCompany.addr = 'Palakkad, Kerala, India';
-
-  return {
-    ...quote,
-    company: cleanCompany,
-    logoData: null,
-  };
+  return quote;
 }
 
 export default function App() {
   const [quotations, setQuotations] = useState([]);
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'form' | 'view'
   const [activeQuote, setActiveQuote] = useState(null);
+  const [downloadModalQuote, setDownloadModalQuote] = useState(null);
   const [toasts, setToasts] = useState([]);
 
   // Load all quotes on mount and listen to realtime updates
@@ -115,15 +105,15 @@ export default function App() {
         ? { ...prevQuote.client } 
         : { name: '', co: '', phone: '', addr: '' },
       company: {
-        ...(prevQuote?.company || {}),
-        name: (prevQuote?.company?.name && !prevQuote.company.name.toLowerCase().includes('zoosh')) ? prevQuote.company.name : '',
-        tag: (prevQuote?.company?.tag && !prevQuote.company.tag.toLowerCase().includes('zoosh')) ? prevQuote.company.tag : '',
+        name: prevQuote?.company?.name || 'ZOOSH',
+        tag: prevQuote?.company?.tag || 'Custom Furniture Company',
         addr: prevQuote?.company?.addr || 'Palakkad, Kerala, India',
         phone: prevQuote?.company?.phone || '+91 9567193992',
-        email: (prevQuote?.company?.email && !prevQuote.company.email.toLowerCase().includes('zoosh')) ? prevQuote.company.email : '',
-        web: (prevQuote?.company?.web && !prevQuote.company.web.toLowerCase().includes('zoosh')) ? prevQuote.company.web : ''
+        email: prevQuote?.company?.email || 'zooshfurniturecompany@gmail.com',
+        web: prevQuote?.company?.web || 'www.zoosh.in',
+        ...(prevQuote?.company || {}),
       },
-      logoData: null,
+      logoData: prevQuote?.logoData || DEFAULT_ZOOSH_LOGO,
       items: [],
       itemData: {},
       itemPhotos: {},
@@ -137,10 +127,10 @@ export default function App() {
           } 
         : { gst: '18', disc: '0', removeGst: false },
       terms: {
+        signName: prevQuote?.terms?.signName || 'LISHA',
+        signDesg: prevQuote?.terms?.signDesg || 'Administrator',
+        text: prevQuote?.terms?.text || 'Adv 70% at the time of confirming order, balance 20% on progress. Final balance of 10% before final finish and handover.\nAny additional work not part of this quotation will be charged 100% in advance as per actuals.\nTaxes and Transportation extra as applicable.\nInvoice validity 30 days from the date.\nIf changing any specification rate may be change accordingly.\nAll rates are Based on 3D Designs drawings only, final quote will purely depend upon final approved designs and detailed drawings.\nOnly the items quoted above are included in our scope.\nAll other terms and conditions will be as per company agreement only.\nPower and water to be supplied by client.',
         ...(prevQuote?.terms || {}),
-        signName: prevQuote?.terms?.signName || 'Authorized Signatory',
-        signDesg: prevQuote?.terms?.signDesg || '',
-        text: prevQuote?.terms?.text || 'Adv 70% at the time of confirming order, balance 20% on progress. Final balance of 10% before final finish and handover.\nAny additional work not part of this quotation will be charged 100% in advance as per actuals.\nTaxes and Transportation extra as applicable.\nInvoice validity 30 days from the date.\nIf changing any specification rate may be change accordingly.\nAll rates are Based on 3D Designs drawings only, final quote will purely depend upon final approved designs and detailed drawings.\nOnly the items quoted above are included in our scope.\nAll other terms and conditions will be as per company agreement only.\nPower and water to be supplied by client.'
       },
       status: 'Draft',
     };
@@ -151,8 +141,7 @@ export default function App() {
   const handleSave = async (quote) => {
     try {
       const isEdit = !!quote.id;
-      const quoteToSave = sanitizeQuote(quote);
-      const saved = await saveQuotation(quoteToSave);
+      const saved = await saveQuotation(quote);
       
       addToast(
         isEdit ? 'Quotation Updated Successfully' : 'Quotation Saved Successfully',
@@ -171,16 +160,7 @@ export default function App() {
       setCurrentView('dashboard');
       setActiveQuote(null);
     } catch (err) {
-      console.error('Failed to save quotation. Full details:', {
-        message: err?.message,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
-        status: err?.status,
-        stack: err?.stack,
-        quoteId: quote?.id,
-        quoteNo: quote?.no
-      });
+      console.error('Failed to save quotation:', err);
       addToast('Error saving quotation', 'error');
     }
   };
@@ -209,13 +189,13 @@ export default function App() {
     }
   };
 
-  const handleDownloadPDF = async (quote) => {
+  const handleDownloadPDF = async (quote, isBranded = true) => {
     try {
       let fullQuote = quote;
       if (quote?.id && (!quote.itemPhotos || !quote.logoData)) {
         fullQuote = await getQuotationById(quote.id);
       }
-      downloadPDF(sanitizeQuote(fullQuote));
+      downloadPDF(fullQuote, { branded: isBranded });
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       addToast('Error generating PDF', 'error');
@@ -292,7 +272,7 @@ export default function App() {
       {/* Top Navbar */}
       <div className="navbar">
         <div className="nav-brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentView('dashboard')}>
-          QUOTATION <span>PORTAL</span>
+          ZOOSH <span>QUOTATION</span>
         </div>
         <div className="nav-actions">
           {currentView === 'dashboard' && (
@@ -310,7 +290,7 @@ export default function App() {
               <button className="nav-btn outline" onClick={() => setCurrentView('dashboard')}>
                 ← Dashboard
               </button>
-              <button className="nav-btn gold" onClick={() => handleDownloadPDF(activeQuote)}>
+              <button className="nav-btn gold" onClick={() => setDownloadModalQuote(activeQuote)}>
                 ⬇ Download PDF
               </button>
             </>
@@ -320,7 +300,7 @@ export default function App() {
 
       {/* Hero Header */}
       <div className="hero">
-        <h1>QUOTATION <span>PORTAL</span></h1>
+        <h1>ZOOSH <span>Quotation Portal</span></h1>
         <p>Professional Furniture Estimator & Management Tool</p>
       </div>
 
@@ -332,7 +312,7 @@ export default function App() {
           onView={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
-              setActiveQuote(sanitizeQuote(fullQuote));
+              setActiveQuote(fullQuote);
               setCurrentView('view');
             } catch (err) {
               console.error('Failed to load full quotation details:', err);
@@ -342,7 +322,7 @@ export default function App() {
           onEdit={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
-              setActiveQuote(sanitizeQuote(fullQuote));
+              setActiveQuote(fullQuote);
               setCurrentView('form');
             } catch (err) {
               console.error('Failed to load full quotation details:', err);
@@ -351,7 +331,7 @@ export default function App() {
           }}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
-          onDownloadPDF={handleDownloadPDF}
+          onDownloadPDF={(quote) => setDownloadModalQuote(quote)}
           onImportJSON={handleImportJSON}
         />
       )}
@@ -373,11 +353,179 @@ export default function App() {
             <button className="nav-btn outline" style={{ background: '#fff', color: 'var(--black)', borderRadius: 0, border: '1px solid var(--border)' }} onClick={() => setCurrentView('dashboard')}>
               ← Back to Dashboard
             </button>
-            <button className="nav-btn gold" style={{ background: 'var(--black)', color: 'var(--white)', padding: '10px 28px', borderRadius: 0, border: '1px solid var(--black)' }} onClick={() => handleDownloadPDF(activeQuote)}>
-              ⬇ Download PDF
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                className="nav-btn gold"
+                style={{ background: 'var(--black)', color: 'var(--white)', padding: '10px 20px', borderRadius: 0, border: '1px solid var(--black)' }}
+                onClick={() => handleDownloadPDF(activeQuote, true)}
+              >
+                ⬇ PDF (With Brand)
+              </button>
+              <button
+                className="nav-btn outline"
+                style={{ background: '#fff', color: 'var(--black)', padding: '10px 20px', borderRadius: 0, border: '1px solid var(--black)' }}
+                onClick={() => handleDownloadPDF(activeQuote, false)}
+              >
+                ⬇ PDF (Unbranded)
+              </button>
+            </div>
           </div>
-          <QuotationPreview quote={activeQuote} />
+          <QuotationPreview quote={activeQuote} onDownloadPDF={handleDownloadPDF} />
+        </div>
+      )}
+
+      {/* Dual PDF Download Modal */}
+      {downloadModalQuote && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.65)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 4000,
+            backdropFilter: 'blur(3px)',
+            padding: '16px'
+          }}
+          onClick={() => setDownloadModalQuote(null)}
+        >
+          <div
+            style={{
+              background: '#fff',
+              maxWidth: '520px',
+              width: '100%',
+              padding: '28px',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+              border: '2px solid var(--black)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-serif)', fontSize: '20px', fontWeight: 700, color: 'var(--black)' }}>
+                  Download Quotation PDF
+                </div>
+                <div style={{ fontSize: '13px', color: 'var(--gray)', marginTop: '3px' }}>
+                  {downloadModalQuote.no} &bull; {downloadModalQuote.client?.name || 'Client'}
+                </div>
+              </div>
+              <button
+                onClick={() => setDownloadModalQuote(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '22px',
+                  cursor: 'pointer',
+                  lineHeight: 1,
+                  color: 'var(--gray)'
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--near-black)', marginBottom: '20px', lineHeight: 1.5 }}>
+              Choose whether to export with official <strong>ZOOSH</strong> branding or an <strong>unbranded</strong> version (address only):
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Option 1: With ZOOSH Brand */}
+              <div
+                style={{
+                  padding: '16px 18px',
+                  border: '1.5px solid var(--black)',
+                  background: 'var(--near-white)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  transition: 'all 0.15s ease'
+                }}
+                onClick={() => {
+                  const q = downloadModalQuote;
+                  setDownloadModalQuote(null);
+                  handleDownloadPDF(q, true);
+                }}
+              >
+                <div style={{ fontSize: '28px', flexShrink: 0 }}>🌟</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--black)' }}>
+                    With ZOOSH Brand (Official)
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px', lineHeight: 1.4 }}>
+                    Includes official ZOOSH logo, company details, website & contact bar, and branded footer.
+                  </div>
+                </div>
+                <div style={{
+                  padding: '6px 12px',
+                  background: 'var(--black)',
+                  color: '#fff',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  Download
+                </div>
+              </div>
+
+              {/* Option 2: Unbranded */}
+              <div
+                style={{
+                  padding: '16px 18px',
+                  border: '1.5px solid #ccc',
+                  background: '#fff',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  transition: 'all 0.15s ease'
+                }}
+                onClick={() => {
+                  const q = downloadModalQuote;
+                  setDownloadModalQuote(null);
+                  handleDownloadPDF(q, false);
+                }}
+              >
+                <div style={{ fontSize: '28px', flexShrink: 0 }}>🏢</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--black)' }}>
+                    Unbranded (Address Only)
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px', lineHeight: 1.4 }}>
+                    Competitor-safe version with no logo, no ZOOSH name, address only, and neutral footer.
+                  </div>
+                </div>
+                <div style={{
+                  padding: '6px 12px',
+                  background: '#f0f0f0',
+                  color: 'var(--black)',
+                  border: '1px solid #ccc',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  Download
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '22px', textAlign: 'right' }}>
+              <button
+                type="button"
+                className="nav-btn outline"
+                style={{ padding: '8px 20px', fontSize: '12px' }}
+                onClick={() => setDownloadModalQuote(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -432,13 +580,16 @@ function normalizeImportedQuotation(parsed) {
   }
 
   normalized.id = normalized.id || Date.now().toString() + Math.random().toString(36).substr(2, 5);
-  normalized.logoData = null;
-  if (normalized.company) {
-    if (normalized.company.name && normalized.company.name.toLowerCase().includes('zoosh')) normalized.company.name = '';
-    if (normalized.company.email && normalized.company.email.toLowerCase().includes('zoosh')) normalized.company.email = '';
-    if (normalized.company.web && normalized.company.web.toLowerCase().includes('zoosh')) normalized.company.web = '';
-    if (normalized.company.tag && normalized.company.tag.toLowerCase().includes('zoosh')) normalized.company.tag = '';
-  }
+  normalized.logoData = normalized.logoData || DEFAULT_ZOOSH_LOGO;
+  normalized.company = {
+    name: 'ZOOSH',
+    tag: 'Custom Furniture Company',
+    addr: 'Palakkad, Kerala, India',
+    phone: '+91 9567193992',
+    email: 'zooshfurniturecompany@gmail.com',
+    web: 'www.zoosh.in',
+    ...(normalized.company || {})
+  };
   normalized.items = normalized.items || [];
   normalized.itemData = normalized.itemData || {};
   normalized.itemPhotos = normalized.itemPhotos || {};
