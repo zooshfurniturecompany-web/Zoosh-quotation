@@ -1,6 +1,5 @@
 import React from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
-import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
 export default function QuotationPreview({ quote }) {
   const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
@@ -28,27 +27,13 @@ export default function QuotationPreview({ quote }) {
     .split('\n')
     .filter(t => t.trim());
 
-  const logoSrc = quote.logoData || DEFAULT_ZOOSH_LOGO;
-  const logoHtml = (
-    <img src={logoSrc} className="doc-logo-img" alt="ZOOSH Logo" />
-  );
-
   return (
     <div id="quotation-doc">
       {/* HEADER */}
       <div className="doc-header">
-        <div className="doc-logo-area">
-          {logoHtml}
-          <div>
-            <div style={{ fontFamily: 'var(--font-serif)', fontSize: '14px', fontWeight: 700, color: 'var(--black)', lineHeight: 1.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {quote.company?.name || 'ZOOSH'}
-            </div>
-            <div className="doc-company">{quote.company?.addr || ''}</div>
-            {quote.company?.tag && (
-              <div style={{ fontSize: '9px', color: 'var(--gray)', marginTop: '4px', fontWeight: 600, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-                {quote.company.tag}
-              </div>
-            )}
+        <div className="doc-company-info">
+          <div className="doc-company-address" style={{ fontSize: '12px', color: 'var(--near-black)', lineHeight: 1.6, maxWidth: '340px', fontWeight: 500 }}>
+            {quote.company?.addr || 'Palakkad, Kerala, India'}
           </div>
         </div>
         <div className="doc-meta-right">
@@ -64,13 +49,6 @@ export default function QuotationPreview({ quote }) {
             </div>
           )}
         </div>
-      </div>
-
-      {/* CONTACT BAR */}
-      <div className="doc-contact">
-        <span>🌐 {quote.company?.web || ''}</span>
-        <span>📞 {quote.company?.phone || ''}</span>
-        <span>✉ {quote.company?.email || ''}</span>
       </div>
 
       {/* TABLE */}
@@ -214,12 +192,12 @@ export default function QuotationPreview({ quote }) {
       {/* FOOTER */}
       <div className="doc-footer">
         <div className="doc-footer-brand">
-          {(quote.company?.name || 'ZOOSH').split(' ').slice(0, 2).join(' ')} <span>|</span>
+          QUOTATION <span>|</span>
         </div>
         <div className="doc-footer-sign">
           <strong>{quote.terms?.signName || ''}</strong><br />
           {quote.terms?.signDesg || ''}<br />
-          {quote.company?.phone || ''}
+          {(quote.company?.phone && !quote.company.phone.toLowerCase().includes('zoosh')) ? quote.company.phone : ''}
         </div>
       </div>
     </div>

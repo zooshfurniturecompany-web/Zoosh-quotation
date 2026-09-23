@@ -1,5 +1,4 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { DEFAULT_ZOOSH_LOGO } from './logo';
 
 const DB_NAME = 'zoosh_quotation_db';
 const DB_VERSION = 1;
@@ -255,7 +254,13 @@ export async function saveQuotation(quote) {
     };
   }
 
-  cleanQuote.logoData = cleanQuote.logoData || DEFAULT_ZOOSH_LOGO;
+  if (cleanQuote.company) {
+    if (cleanQuote.company.name && cleanQuote.company.name.toLowerCase().includes('zoosh')) cleanQuote.company.name = '';
+    if (cleanQuote.company.email && cleanQuote.company.email.toLowerCase().includes('zoosh')) cleanQuote.company.email = '';
+    if (cleanQuote.company.web && cleanQuote.company.web.toLowerCase().includes('zoosh')) cleanQuote.company.web = '';
+    if (cleanQuote.company.tag && cleanQuote.company.tag.toLowerCase().includes('zoosh')) cleanQuote.company.tag = '';
+  }
+  cleanQuote.logoData = null;
   return saveQuotationDirect(cleanQuote);
 }
 
@@ -338,7 +343,7 @@ export async function duplicateQuotation(id) {
 
   const duplicated = {
     ...quote,
-    logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
+    logoData: null,
     id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
     no: newNo,
     sequenceNumber: seq,

@@ -1,5 +1,4 @@
 import { currSymbol, fmtNum, numberToWords } from './currency';
-import { DEFAULT_ZOOSH_LOGO } from './logo';
 
 function getSanitizedFilename(quote) {
   const clientName = quote.client?.name || 'Client';
@@ -16,7 +15,7 @@ function getSanitizedFilename(quote) {
 }
 
 export function downloadPDF(quote) {
-  const coName = quote.company?.name || 'ZOOSH';
+  const coName = (quote.company?.name && !quote.company.name.toLowerCase().includes('zoosh')) ? quote.company.name : '';
   const qNo = quote.no || 'QTN';
 
   // Calculate totals
@@ -64,11 +63,6 @@ export function downloadPDF(quote) {
     .map(t => `<li>${t.trim()}</li>`)
     .join('');
 
-  const logoSrc = quote.logoData || DEFAULT_ZOOSH_LOGO;
-  const logoHtml = logoSrc
-    ? `<img src="${logoSrc}" class="doc-logo-img" alt="ZOOSH Logo">`
-    : `<div class="doc-logo-placeholder">${(quote.company?.name || 'LOGO').split(' ')[0]}</div>`;
-
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
@@ -88,15 +82,12 @@ export function downloadPDF(quote) {
       }
       body{font-family:var(--font-sans);font-size:10pt;color:#111111;background:#fff;}
       .wrap{max-width:860px;margin:0 auto;padding:0;}
-      .doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding:24px 28px 16px;border-bottom:1px solid #111111;}
-      .doc-logo-area{display:flex;align-items:center;gap:16px;}
-      .doc-logo-img{height:52px;max-width:140px;object-fit:contain;}
-      .doc-logo-placeholder{font-family:var(--font-serif);font-size:30px;font-weight:700;letter-spacing:.1em;color:#111111;}
-      .doc-company{font-size:9px;color:var(--muted);line-height:1.7;margin-top:3px;}
+      .doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding:24px 28px 20px;border-bottom:1px solid #111111;}
+      .doc-company-info{max-width:340px;}
+      .doc-company-address{font-size:11px;color:#111111;line-height:1.6;font-weight:500;}
       .doc-meta-right{text-align:right;}
       .doc-no{font-size:10px;color:#111111;font-weight:700;letter-spacing:.05em;text-transform:uppercase;}
       .doc-to{font-size:11px;color:#111111;margin-top:5px;line-height:1.7;}
-      .doc-contact{background:#f9f9f9;color:#111111;display:flex;justify-content:space-around;padding:8px 28px;font-size:9px;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid #111111;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       table{width:100%;border-collapse:collapse;}
       thead tr th{background:#f9f9f9;padding:7px 12px;font-size:8px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#111111;border-bottom:1px solid #111111;text-align:left;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
       thead tr th.num{text-align:right;}
@@ -133,26 +124,14 @@ export function downloadPDF(quote) {
   </head><body><div class="wrap">
     <!-- HEADER -->
     <div class="doc-header">
-      <div class="doc-logo-area">
-        ${logoHtml}
-        <div>
-          <div style="font-family:var(--font-serif);font-size:14px;font-weight:700;color:var(--black);line-height:1.5;text-transform:uppercase;letter-spacing:0.05em;">${quote.company?.name || 'ZOOSH'}</div>
-          <div class="doc-company">${quote.company?.addr || ''}</div>
-          ${quote.company?.tag ? `<div style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;">${quote.company.tag}</div>` : ''}
-        </div>
+      <div class="doc-company-info">
+        <div class="doc-company-address">${quote.company?.addr || 'Palakkad, Kerala, India'}</div>
       </div>
       <div class="doc-meta-right">
         <div class="doc-no">Doc. No. : ${qNo}</div>
         <div class="doc-to">To, &nbsp;<strong>${quote.client?.name || '—'}</strong>${quote.client?.co ? '<br>' + quote.client.co : ''}<br>Date: ${quote.date || ''}</div>
         ${quote.valid ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Valid Until: ${quote.valid}</div>` : ''}
       </div>
-    </div>
-
-    <!-- CONTACT BAR -->
-    <div class="doc-contact">
-      <span>🌐 ${quote.company?.web || ''}</span>
-      <span>📞 ${quote.company?.phone || ''}</span>
-      <span>✉ ${quote.company?.email || ''}</span>
     </div>
 
     <!-- TABLE -->
@@ -205,11 +184,11 @@ export function downloadPDF(quote) {
 
     <!-- FOOTER -->
     <div class="doc-footer">
-      <div class="doc-footer-brand">${(quote.company?.name || 'ZOOSH').split(' ').slice(0, 2).join(' ')} <span>|</span></div>
+      <div class="doc-footer-brand">QUOTATION <span>|</span></div>
       <div class="doc-footer-sign">
         <strong>${quote.terms?.signName || ''}</strong><br>
         ${quote.terms?.signDesg || ''}<br>
-        ${quote.company?.phone || ''}
+        ${(quote.company?.phone && !quote.company.phone.toLowerCase().includes('zoosh')) ? quote.company.phone : ''}
       </div>
     </div>
   </div></body></html>`);

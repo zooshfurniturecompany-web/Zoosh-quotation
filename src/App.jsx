@@ -13,7 +13,22 @@ import {
 } from './utils/storage';
 import { downloadPDF } from './utils/pdfGenerator';
 import { supabase, isSupabaseConfigured } from './utils/supabaseClient';
-import { DEFAULT_ZOOSH_LOGO } from './utils/logo';
+
+export function sanitizeQuote(quote) {
+  if (!quote) return quote;
+  const cleanCompany = { ...(quote.company || {}) };
+  if (cleanCompany.name && cleanCompany.name.toLowerCase().includes('zoosh')) cleanCompany.name = '';
+  if (cleanCompany.email && cleanCompany.email.toLowerCase().includes('zoosh')) cleanCompany.email = '';
+  if (cleanCompany.web && cleanCompany.web.toLowerCase().includes('zoosh')) cleanCompany.web = '';
+  if (cleanCompany.tag && cleanCompany.tag.toLowerCase().includes('zoosh')) cleanCompany.tag = '';
+  if (!cleanCompany.addr) cleanCompany.addr = 'Palakkad, Kerala, India';
+
+  return {
+    ...quote,
+    company: cleanCompany,
+    logoData: null,
+  };
+}
 
 export default function App() {
   const [quotations, setQuotations] = useState([]);
@@ -101,14 +116,14 @@ export default function App() {
         : { name: '', co: '', phone: '', addr: '' },
       company: {
         ...(prevQuote?.company || {}),
-        name: prevQuote?.company?.name || 'ZOOSH',
-        tag: prevQuote?.company?.tag || 'Custom Furniture Company',
+        name: (prevQuote?.company?.name && !prevQuote.company.name.toLowerCase().includes('zoosh')) ? prevQuote.company.name : '',
+        tag: (prevQuote?.company?.tag && !prevQuote.company.tag.toLowerCase().includes('zoosh')) ? prevQuote.company.tag : '',
         addr: prevQuote?.company?.addr || 'Palakkad, Kerala, India',
         phone: prevQuote?.company?.phone || '+91 9567193992',
-        email: prevQuote?.company?.email || 'zooshfurniturecompany@gmail.com',
-        web: prevQuote?.company?.web || 'www.zoosh.in'
+        email: (prevQuote?.company?.email && !prevQuote.company.email.toLowerCase().includes('zoosh')) ? prevQuote.company.email : '',
+        web: (prevQuote?.company?.web && !prevQuote.company.web.toLowerCase().includes('zoosh')) ? prevQuote.company.web : ''
       },
-      logoData: DEFAULT_ZOOSH_LOGO,
+      logoData: null,
       items: [],
       itemData: {},
       itemPhotos: {},
@@ -123,8 +138,8 @@ export default function App() {
         : { gst: '18', disc: '0', removeGst: false },
       terms: {
         ...(prevQuote?.terms || {}),
-        signName: prevQuote?.terms?.signName || 'LISHA',
-        signDesg: prevQuote?.terms?.signDesg || 'Administrator',
+        signName: prevQuote?.terms?.signName || 'Authorized Signatory',
+        signDesg: prevQuote?.terms?.signDesg || '',
         text: prevQuote?.terms?.text || 'Adv 70% at the time of confirming order, balance 20% on progress. Final balance of 10% before final finish and handover.\nAny additional work not part of this quotation will be charged 100% in advance as per actuals.\nTaxes and Transportation extra as applicable.\nInvoice validity 30 days from the date.\nIf changing any specification rate may be change accordingly.\nAll rates are Based on 3D Designs drawings only, final quote will purely depend upon final approved designs and detailed drawings.\nOnly the items quoted above are included in our scope.\nAll other terms and conditions will be as per company agreement only.\nPower and water to be supplied by client.'
       },
       status: 'Draft',
@@ -136,10 +151,7 @@ export default function App() {
   const handleSave = async (quote) => {
     try {
       const isEdit = !!quote.id;
-      const quoteToSave = {
-        ...quote,
-        logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
-      };
+      const quoteToSave = sanitizeQuote(quote);
       const saved = await saveQuotation(quoteToSave);
       
       addToast(
@@ -203,10 +215,7 @@ export default function App() {
       if (quote?.id && (!quote.itemPhotos || !quote.logoData)) {
         fullQuote = await getQuotationById(quote.id);
       }
-      if (!fullQuote.logoData) {
-        fullQuote = { ...fullQuote, logoData: DEFAULT_ZOOSH_LOGO };
-      }
-      downloadPDF(fullQuote);
+      downloadPDF(sanitizeQuote(fullQuote));
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       addToast('Error generating PDF', 'error');
@@ -283,7 +292,7 @@ export default function App() {
       {/* Top Navbar */}
       <div className="navbar">
         <div className="nav-brand" style={{ cursor: 'pointer' }} onClick={() => setCurrentView('dashboard')}>
-          ZOOSH <span>QUOTATION</span>
+          QUOTATION <span>PORTAL</span>
         </div>
         <div className="nav-actions">
           {currentView === 'dashboard' && (
@@ -311,7 +320,7 @@ export default function App() {
 
       {/* Hero Header */}
       <div className="hero">
-        <h1>ZOOSH <span>Quotation Portal</span></h1>
+        <h1>QUOTATION <span>PORTAL</span></h1>
         <p>Professional Furniture Estimator & Management Tool</p>
       </div>
 
@@ -323,10 +332,7 @@ export default function App() {
           onView={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
-              if (fullQuote && !fullQuote.logoData) {
-                fullQuote.logoData = DEFAULT_ZOOSH_LOGO;
-              }
-              setActiveQuote(fullQuote);
+              setActiveQuote(sanitizeQuote(fullQuote));
               setCurrentView('view');
             } catch (err) {
               console.error('Failed to load full quotation details:', err);
@@ -336,10 +342,7 @@ export default function App() {
           onEdit={async (quote) => {
             try {
               const fullQuote = await getQuotationById(quote.id);
-              if (fullQuote && !fullQuote.logoData) {
-                fullQuote.logoData = DEFAULT_ZOOSH_LOGO;
-              }
-              setActiveQuote(fullQuote);
+              setActiveQuote(sanitizeQuote(fullQuote));
               setCurrentView('form');
             } catch (err) {
               console.error('Failed to load full quotation details:', err);
@@ -429,7 +432,13 @@ function normalizeImportedQuotation(parsed) {
   }
 
   normalized.id = normalized.id || Date.now().toString() + Math.random().toString(36).substr(2, 5);
-  normalized.logoData = normalized.logoData || DEFAULT_ZOOSH_LOGO;
+  normalized.logoData = null;
+  if (normalized.company) {
+    if (normalized.company.name && normalized.company.name.toLowerCase().includes('zoosh')) normalized.company.name = '';
+    if (normalized.company.email && normalized.company.email.toLowerCase().includes('zoosh')) normalized.company.email = '';
+    if (normalized.company.web && normalized.company.web.toLowerCase().includes('zoosh')) normalized.company.web = '';
+    if (normalized.company.tag && normalized.company.tag.toLowerCase().includes('zoosh')) normalized.company.tag = '';
+  }
   normalized.items = normalized.items || [];
   normalized.itemData = normalized.itemData || {};
   normalized.itemPhotos = normalized.itemPhotos || {};
