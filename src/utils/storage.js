@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { DEFAULT_ZOOSH_LOGO } from './logo';
 
 const DB_NAME = 'zoosh_quotation_db';
 const DB_VERSION = 1;
@@ -65,6 +66,13 @@ export async function getAllQuotations() {
       healed.push(q);
     }
   }
+
+  // Sort quotations so newly created / edited ones are at the top
+  healed.sort((a, b) => {
+    const timeA = new Date(a.updatedAt || a.createdAt || a.date || 0).getTime();
+    const timeB = new Date(b.updatedAt || b.createdAt || b.date || 0).getTime();
+    return timeB - timeA;
+  });
 
   return healed;
 }
@@ -254,13 +262,7 @@ export async function saveQuotation(quote) {
     };
   }
 
-  if (cleanQuote.company) {
-    if (cleanQuote.company.name && cleanQuote.company.name.toLowerCase().includes('zoosh')) cleanQuote.company.name = '';
-    if (cleanQuote.company.email && cleanQuote.company.email.toLowerCase().includes('zoosh')) cleanQuote.company.email = '';
-    if (cleanQuote.company.web && cleanQuote.company.web.toLowerCase().includes('zoosh')) cleanQuote.company.web = '';
-    if (cleanQuote.company.tag && cleanQuote.company.tag.toLowerCase().includes('zoosh')) cleanQuote.company.tag = '';
-  }
-  cleanQuote.logoData = null;
+  cleanQuote.logoData = cleanQuote.logoData || DEFAULT_ZOOSH_LOGO;
   return saveQuotationDirect(cleanQuote);
 }
 

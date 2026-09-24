@@ -102,19 +102,29 @@ export default function Dashboard({
       const [seqB, revB] = parseNo(b);
 
       if (sortBy === 'newest') {
+        const timeA = new Date(a.updatedAt || a.createdAt || a.date || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || b.date || 0).getTime();
+        if (timeA !== timeB) return timeB - timeA;
         if (seqA !== seqB) return seqB - seqA;
         return revB - revA;
       }
-      
-      if (sortBy === 'oldest') {
+
+      if (sortBy === 'number-desc') {
+        if (seqA !== seqB) return seqB - seqA;
+        return revB - revA;
+      }
+
+      if (sortBy === 'number-asc') {
         if (seqA !== seqB) return seqA - seqB;
         return revA - revB;
       }
       
-      if (sortBy === 'updated') {
-        const dateA = new Date(a.updatedAt || a.createdAt || a.date);
-        const dateB = new Date(b.updatedAt || b.createdAt || b.date);
-        return dateB - dateA;
+      if (sortBy === 'oldest') {
+        const timeA = new Date(a.createdAt || a.date || 0).getTime();
+        const timeB = new Date(b.createdAt || b.date || 0).getTime();
+        if (timeA !== timeB) return timeA - timeB;
+        if (seqA !== seqB) return seqA - seqB;
+        return revA - revB;
       }
       
       if (sortBy === 'client-az') {
@@ -212,9 +222,10 @@ export default function Dashboard({
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
             >
-              <option value="newest">Newest Quotation First</option>
-              <option value="oldest">Oldest Quotation First</option>
-              <option value="updated">Last Updated</option>
+              <option value="newest">Recently Created / Edited (Default)</option>
+              <option value="number-desc">Quotation Number (Highest First)</option>
+              <option value="number-asc">Quotation Number (Lowest First)</option>
+              <option value="oldest">Oldest First</option>
               <option value="client-az">Client Name (A–Z)</option>
               <option value="client-za">Client Name (Z–A)</option>
             </select>

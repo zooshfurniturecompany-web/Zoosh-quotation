@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
-export default function QuotationPreview({ quote, onDownloadPDF }) {
-  const [isBranded, setIsBranded] = useState(true);
+export default function QuotationPreview({ quote, onBack, onDownloadPDF }) {
+  const [showLogo, setShowLogo] = useState(true);
 
   const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
     (quote.taxPricing?.gst !== undefined && quote.taxPricing?.gst !== '' && parseFloat(quote.taxPricing?.gst) === 0);
@@ -30,66 +30,81 @@ export default function QuotationPreview({ quote, onDownloadPDF }) {
     .split('\n')
     .filter(t => t.trim());
 
-  const logoSrc = isBranded ? (quote.logoData || DEFAULT_ZOOSH_LOGO) : null;
+  const logoSrc = showLogo ? (quote.logoData || DEFAULT_ZOOSH_LOGO) : null;
 
   return (
     <div>
-      {/* Brand Selection Toggle Bar */}
+      {/* Consolidated Toolbar: Back + Preview Toggle + Only Two Download Options */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Preview Format:
-          </span>
-          <div style={{ display: 'inline-flex', border: '1px solid var(--black)', borderRadius: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {onBack && (
             <button
               type="button"
-              style={{
-                padding: '6px 14px',
-                fontSize: '11px',
-                fontWeight: 700,
-                background: isBranded ? 'var(--black)' : 'var(--white)',
-                color: isBranded ? 'var(--white)' : 'var(--black)',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-              onClick={() => setIsBranded(true)}
+              className="nav-btn outline"
+              style={{ background: '#fff', color: 'var(--black)', padding: '8px 16px', fontSize: '11px', border: '1px solid var(--border)' }}
+              onClick={onBack}
             >
-              🌟 With ZOOSH Brand
+              ← Back to Dashboard
             </button>
-            <button
-              type="button"
-              style={{
-                padding: '6px 14px',
-                fontSize: '11px',
-                fontWeight: 700,
-                background: !isBranded ? 'var(--black)' : 'var(--white)',
-                color: !isBranded ? 'var(--white)' : 'var(--black)',
-                border: 'none',
-                borderLeft: '1px solid var(--black)',
-                cursor: 'pointer'
-              }}
-              onClick={() => setIsBranded(false)}
-            >
-              🏢 Unbranded (Address Only)
-            </button>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Preview:
+            </span>
+            <div style={{ display: 'inline-flex', border: '1px solid var(--black)', borderRadius: 0 }}>
+              <button
+                type="button"
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  background: showLogo ? 'var(--black)' : 'var(--white)',
+                  color: showLogo ? 'var(--white)' : 'var(--black)',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setShowLogo(true)}
+              >
+                With Logo
+              </button>
+              <button
+                type="button"
+                style={{
+                  padding: '6px 14px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  background: !showLogo ? 'var(--black)' : 'var(--white)',
+                  color: !showLogo ? 'var(--white)' : 'var(--black)',
+                  border: 'none',
+                  borderLeft: '1px solid var(--black)',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setShowLogo(false)}
+              >
+                Without Logo
+              </button>
+            </div>
           </div>
         </div>
 
+        {/* Exactly Two Download Options */}
         {onDownloadPDF && (
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
+              type="button"
               className="nav-btn gold"
-              style={{ background: 'var(--black)', color: 'var(--white)', padding: '8px 16px', fontSize: '11px' }}
+              style={{ background: 'var(--black)', color: 'var(--white)', padding: '8px 18px', fontSize: '11px', border: '1px solid var(--black)' }}
               onClick={() => onDownloadPDF(quote, true)}
             >
-              ⬇ PDF (With Brand)
+              ⬇ PDF (With Logo)
             </button>
             <button
+              type="button"
               className="nav-btn outline"
-              style={{ background: 'var(--white)', color: 'var(--black)', border: '1px solid var(--black)', padding: '8px 16px', fontSize: '11px' }}
+              style={{ background: 'var(--white)', color: 'var(--black)', border: '1px solid var(--black)', padding: '8px 18px', fontSize: '11px' }}
               onClick={() => onDownloadPDF(quote, false)}
             >
-              ⬇ PDF (Unbranded)
+              ⬇ PDF (Without Logo)
             </button>
           </div>
         )}
@@ -97,7 +112,7 @@ export default function QuotationPreview({ quote, onDownloadPDF }) {
 
       <div id="quotation-doc">
         {/* HEADER */}
-        {isBranded ? (
+        {showLogo ? (
           <>
             <div className="doc-header">
               <div className="doc-logo-area">
@@ -298,7 +313,7 @@ export default function QuotationPreview({ quote, onDownloadPDF }) {
       {/* FOOTER */}
       <div className="doc-footer">
         <div className="doc-footer-brand">
-          {isBranded ? (
+          {showLogo ? (
             <>
               {(quote.company?.name || 'ZOOSH').split(' ').slice(0, 2).join(' ')} <span>|</span>
             </>
@@ -309,9 +324,9 @@ export default function QuotationPreview({ quote, onDownloadPDF }) {
           )}
         </div>
         <div className="doc-footer-sign">
-          <strong>{isBranded ? (quote.terms?.signName || 'LISHA') : (quote.terms?.signName || '')}</strong><br />
-          {isBranded ? (quote.terms?.signDesg || 'Administrator') : (quote.terms?.signDesg || '')}<br />
-          {(quote.company?.phone && (isBranded || !quote.company.phone.toLowerCase().includes('zoosh'))) ? quote.company.phone : ''}
+          <strong>{showLogo ? (quote.terms?.signName || 'LISHA') : (quote.terms?.signName || '')}</strong><br />
+          {showLogo ? (quote.terms?.signDesg || 'Administrator') : (quote.terms?.signDesg || '')}<br />
+          {(quote.company?.phone && (showLogo || !quote.company.phone.toLowerCase().includes('zoosh'))) ? quote.company.phone : ''}
         </div>
       </div>
     </div>

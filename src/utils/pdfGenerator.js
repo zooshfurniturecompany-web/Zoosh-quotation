@@ -1,7 +1,7 @@
 import { currSymbol, fmtNum, numberToWords } from './currency';
 import { DEFAULT_ZOOSH_LOGO } from './logo';
 
-function getSanitizedFilename(quote, isBranded = true) {
+function getSanitizedFilename(quote) {
   const clientName = quote.client?.name || 'Client';
   const qNo = quote.no || 'QTN';
   
@@ -12,12 +12,13 @@ function getSanitizedFilename(quote, isBranded = true) {
     .replace(/\s+/g, ' ')
     .trim();
     
-  const suffix = isBranded ? '' : ' (Unbranded)';
-  return `${cleanClientName} - ${qNo}${suffix}`;
+  return `${cleanClientName} - ${qNo}`;
 }
 
-export function downloadPDF(quote, options = { branded: true }) {
-  const isBranded = options?.branded !== false;
+export function downloadPDF(quote, options = { withLogo: true }) {
+  const showLogo = options?.withLogo !== undefined 
+    ? Boolean(options.withLogo) 
+    : (options?.branded !== undefined ? Boolean(options.branded) : true);
   const qNo = quote.no || 'QTN';
 
   // Calculate totals
@@ -65,10 +66,10 @@ export function downloadPDF(quote, options = { branded: true }) {
     .map(t => `<li>${t.trim()}</li>`)
     .join('');
 
-  const logoSrc = isBranded ? (quote.logoData || DEFAULT_ZOOSH_LOGO) : null;
+  const logoSrc = showLogo ? (quote.logoData || DEFAULT_ZOOSH_LOGO) : null;
   const logoImgHtml = logoSrc ? `<img src="${logoSrc}" class="doc-logo-img" alt="Logo">` : '';
 
-  const headerHtml = isBranded
+  const headerHtml = showLogo
     ? `
       <div class="doc-header">
         <div class="doc-logo-area">
@@ -104,18 +105,18 @@ export function downloadPDF(quote, options = { branded: true }) {
       </div>
     `;
 
-  const footerBrand = isBranded
+  const footerBrand = showLogo
     ? `${(quote.company?.name || 'ZOOSH').split(' ').slice(0, 2).join(' ')} <span>|</span>`
     : `QUOTATION <span>|</span>`;
 
-  const footerSignName = isBranded ? (quote.terms?.signName || 'LISHA') : (quote.terms?.signName || '');
-  const footerSignDesg = isBranded ? (quote.terms?.signDesg || 'Administrator') : (quote.terms?.signDesg || '');
-  const footerPhone = (quote.company?.phone && (isBranded || !quote.company.phone.toLowerCase().includes('zoosh'))) ? quote.company.phone : '';
+  const footerSignName = showLogo ? (quote.terms?.signName || 'LISHA') : (quote.terms?.signName || '');
+  const footerSignDesg = showLogo ? (quote.terms?.signDesg || 'Administrator') : (quote.terms?.signDesg || '');
+  const footerPhone = (quote.company?.phone && (showLogo || !quote.company.phone.toLowerCase().includes('zoosh'))) ? quote.company.phone : '';
 
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
-    <title>${getSanitizedFilename(quote, isBranded)}</title>
+    <title>${getSanitizedFilename(quote)}</title>
     <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       *{box-sizing:border-box;margin:0;padding:0;}

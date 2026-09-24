@@ -148,14 +148,8 @@ export default function App() {
         'success'
       );
       
-      // Update local memory state directly instead of refetching the entire list
-      if (isEdit) {
-        setQuotations((prev) =>
-          prev.map((q) => (q.id === saved.id ? saved : q))
-        );
-      } else {
-        setQuotations((prev) => [saved, ...prev]);
-      }
+      // Update local memory state directly: place newly created / edited quotation at the VERY TOP
+      setQuotations((prev) => [saved, ...prev.filter((q) => q.id !== saved.id)]);
       
       setCurrentView('dashboard');
       setActiveQuote(null);
@@ -189,13 +183,13 @@ export default function App() {
     }
   };
 
-  const handleDownloadPDF = async (quote, isBranded = true) => {
+  const handleDownloadPDF = async (quote, withLogo = true) => {
     try {
       let fullQuote = quote;
       if (quote?.id && (!quote.itemPhotos || !quote.logoData)) {
         fullQuote = await getQuotationById(quote.id);
       }
-      downloadPDF(fullQuote, { branded: isBranded });
+      downloadPDF(fullQuote, { withLogo });
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       addToast('Error generating PDF', 'error');
@@ -286,14 +280,9 @@ export default function App() {
             </button>
           )}
           {currentView === 'view' && (
-            <>
-              <button className="nav-btn outline" onClick={() => setCurrentView('dashboard')}>
-                ← Dashboard
-              </button>
-              <button className="nav-btn gold" onClick={() => setDownloadModalQuote(activeQuote)}>
-                ⬇ Download PDF
-              </button>
-            </>
+            <button className="nav-btn outline" onClick={() => setCurrentView('dashboard')}>
+              ← Dashboard
+            </button>
           )}
         </div>
       </div>
@@ -349,28 +338,11 @@ export default function App() {
 
       {currentView === 'view' && activeQuote && (
         <div className="main">
-          <div className="prev-topbar">
-            <button className="nav-btn outline" style={{ background: '#fff', color: 'var(--black)', borderRadius: 0, border: '1px solid var(--border)' }} onClick={() => setCurrentView('dashboard')}>
-              ← Back to Dashboard
-            </button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                className="nav-btn gold"
-                style={{ background: 'var(--black)', color: 'var(--white)', padding: '10px 20px', borderRadius: 0, border: '1px solid var(--black)' }}
-                onClick={() => handleDownloadPDF(activeQuote, true)}
-              >
-                ⬇ PDF (With Brand)
-              </button>
-              <button
-                className="nav-btn outline"
-                style={{ background: '#fff', color: 'var(--black)', padding: '10px 20px', borderRadius: 0, border: '1px solid var(--black)' }}
-                onClick={() => handleDownloadPDF(activeQuote, false)}
-              >
-                ⬇ PDF (Unbranded)
-              </button>
-            </div>
-          </div>
-          <QuotationPreview quote={activeQuote} onDownloadPDF={handleDownloadPDF} />
+          <QuotationPreview
+            quote={activeQuote}
+            onBack={() => setCurrentView('dashboard')}
+            onDownloadPDF={handleDownloadPDF}
+          />
         </div>
       )}
 
@@ -429,11 +401,11 @@ export default function App() {
             </div>
 
             <p style={{ fontSize: '13px', color: 'var(--near-black)', marginBottom: '20px', lineHeight: 1.5 }}>
-              Choose whether to export with official <strong>ZOOSH</strong> branding or an <strong>unbranded</strong> version (address only):
+              Choose your PDF export option:
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* Option 1: With ZOOSH Brand */}
+              {/* Option 1: With Logo */}
               <div
                 style={{
                   padding: '16px 18px',
@@ -454,10 +426,10 @@ export default function App() {
                 <div style={{ fontSize: '28px', flexShrink: 0 }}>🌟</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--black)' }}>
-                    With ZOOSH Brand (Official)
+                    With Logo
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px', lineHeight: 1.4 }}>
-                    Includes official ZOOSH logo, company details, website & contact bar, and branded footer.
+                    Includes company logo, contact bar, and signatory footer.
                   </div>
                 </div>
                 <div style={{
@@ -469,11 +441,11 @@ export default function App() {
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em'
                 }}>
-                  Download
+                  Download (With Logo)
                 </div>
               </div>
 
-              {/* Option 2: Unbranded */}
+              {/* Option 2: Without Logo */}
               <div
                 style={{
                   padding: '16px 18px',
@@ -494,10 +466,10 @@ export default function App() {
                 <div style={{ fontSize: '28px', flexShrink: 0 }}>🏢</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--black)' }}>
-                    Unbranded (Address Only)
+                    Without Logo
                   </div>
                   <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px', lineHeight: 1.4 }}>
-                    Competitor-safe version with no logo, no ZOOSH name, address only, and neutral footer.
+                    Address only with clean, neutral layout and no company logo.
                   </div>
                 </div>
                 <div style={{
@@ -510,7 +482,7 @@ export default function App() {
                   textTransform: 'uppercase',
                   letterSpacing: '0.05em'
                 }}>
-                  Download
+                  Download (Without Logo)
                 </div>
               </div>
             </div>
