@@ -624,6 +624,8 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
 
     const bytes1 = await getImageBytes(img1?.url);
     const bytes2 = img2 ? await getImageBytes(img2.url) : null;
+    const scale1 = img1?.scale || 1;
+    const scale2 = img2?.scale || 1;
 
     const cell1Children = [
       new Paragraph({
@@ -644,7 +646,10 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
           children: [
             new ImageRun({
               data: bytes1,
-              transformation: { width: 200, height: 140 },
+              transformation: {
+                width: Math.round(200 * scale1),
+                height: Math.round(140 * scale1),
+              },
             }),
           ],
         })
@@ -680,7 +685,10 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
             children: [
               new ImageRun({
                 data: bytes2,
-                transformation: { width: 200, height: 140 },
+                transformation: {
+                  width: Math.round(200 * scale2),
+                  height: Math.round(140 * scale2),
+                },
               }),
             ],
           })
@@ -931,8 +939,11 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
     // 1. Render annotated preview image for this product (tight aspect ratio, zero blank space)
     const canvasRes = await renderProductCanvasToImage(product, isPortrait ? 900 : 800, isPortrait ? 600 : 540);
     const canvasBytes = base64ToUint8Array(canvasRes.dataUrl || canvasRes);
-    const imgWidth = canvasRes.wordWidth || (isPortrait ? 520 : 440);
-    const imgHeight = canvasRes.wordHeight || (isPortrait ? 330 : 285);
+    const imgScale = product.photoScale || 1;
+    const baseW = canvasRes.wordWidth || (isPortrait ? 520 : 440);
+    const baseH = canvasRes.wordHeight || (isPortrait ? 330 : 285);
+    const imgWidth = Math.round(baseW * imgScale);
+    const imgHeight = Math.round(baseH * imgScale);
 
     // 2. Build 2-column Word table for Landscape (or stacked for Portrait)
     const leftChildren = [

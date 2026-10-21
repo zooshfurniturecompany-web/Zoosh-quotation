@@ -750,6 +750,7 @@ export default function ReviewSheet({
             originalPhoto: null,
             photoPan: { x: 50, y: 50 },
             photoZoom: 1,
+            photoScale: 1,
           };
         }
         return p;
@@ -768,6 +769,7 @@ export default function ReviewSheet({
             originalUrl: null,
             pan: { x: 50, y: 50 },
             zoom: 1,
+            scale: 1,
           };
         }
         return img;
@@ -787,7 +789,7 @@ export default function ReviewSheet({
     setInlineCropTarget(null);
   };
 
-  const handleApplyFrameCrop = async (productId, imageType, imageId, { croppedUrl, pan, zoom }) => {
+  const handleApplyFrameCrop = async (productId, imageType, imageId, { croppedUrl, pan, zoom, scale }) => {
     const prod = doc.products.find((p) => p.id === productId);
     if (!prod) return;
 
@@ -800,6 +802,7 @@ export default function ReviewSheet({
             originalPhoto: croppedUrl ? (p.originalPhoto || p.photo) : p.originalPhoto,
             photoPan: pan || p.photoPan || { x: 50, y: 50 },
             photoZoom: zoom !== undefined ? zoom : (p.photoZoom ?? 1),
+            photoScale: scale !== undefined ? scale : (p.photoScale ?? 1),
           };
         }
         return p;
@@ -808,7 +811,14 @@ export default function ReviewSheet({
       pushToUndo(doc.products);
       setDoc(updatedDoc);
       await saveReviewDocument(updatedDoc);
-      addToast(croppedUrl ? 'Cropped Reference Image with handles' : 'Updated image position', 'success');
+      addToast(
+        croppedUrl
+          ? 'Cropped Reference Image'
+          : scale !== undefined
+          ? `Updated Reference Image size (${Math.round((scale || 1) * 100)}%)`
+          : 'Updated image position',
+        'success'
+      );
     } else if (imageType === 'additional') {
       const updatedAddImgs = (prod.additionalImages || []).map((img) => {
         if (img.id === imageId) {
@@ -818,6 +828,7 @@ export default function ReviewSheet({
             originalUrl: croppedUrl ? (img.originalUrl || img.url) : img.originalUrl,
             pan: pan || img.pan || { x: 50, y: 50 },
             zoom: zoom !== undefined ? zoom : (img.zoom ?? 1),
+            scale: scale !== undefined ? scale : (img.scale ?? 1),
           };
         }
         return img;
@@ -832,7 +843,14 @@ export default function ReviewSheet({
       pushToUndo(doc.products);
       setDoc(updatedDoc);
       await saveReviewDocument(updatedDoc);
-      addToast(croppedUrl ? 'Cropped additional view with handles' : 'Updated view position', 'success');
+      addToast(
+        croppedUrl
+          ? 'Cropped additional view'
+          : scale !== undefined
+          ? `Updated view size (${Math.round((scale || 1) * 100)}%)`
+          : 'Updated view position',
+        'success'
+      );
     }
   };
 
@@ -1739,6 +1757,7 @@ export default function ReviewSheet({
                           panX={product.photoPan?.x ?? 50}
                           panY={product.photoPan?.y ?? 50}
                           zoom={product.photoZoom ?? 1}
+                          scale={product.photoScale ?? 1}
                           fit={imageFitModes[`pri-${product.id}`] || 'cover'}
                           isLocked={product.imageLocked}
                           readOnly={isViewingSnapshot}
@@ -1790,6 +1809,7 @@ export default function ReviewSheet({
                                   panX={img.pan?.x ?? 50}
                                   panY={img.pan?.y ?? 50}
                                   zoom={img.zoom ?? 1}
+                                  scale={img.scale ?? 1}
                                   fit={imageFitModes[`add-${img.id}`] || 'cover'}
                                   isLocked={img.locked}
                                   readOnly={isViewingSnapshot}
@@ -2096,6 +2116,7 @@ export default function ReviewSheet({
                         panX={img.pan?.x ?? 50}
                         panY={img.pan?.y ?? 50}
                         zoom={img.zoom ?? 1}
+                        scale={img.scale ?? 1}
                         fit={imageFitModes[`add-${img.id}`] || 'cover'}
                         isLocked={img.locked}
                         readOnly={isViewingSnapshot}
