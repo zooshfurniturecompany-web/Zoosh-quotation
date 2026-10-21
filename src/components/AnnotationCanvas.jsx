@@ -11,6 +11,10 @@ export default function AnnotationCanvas({
   isLocked = false,
   isReadOnly = false,
   onApproveProduct,
+  fit = 'cover',
+  panX = 50,
+  panY = 50,
+  zoom = 1,
 }) {
   const containerRef = useRef(null);
   const [selectedId, setSelectedId] = useState(null);
@@ -369,9 +373,12 @@ export default function AnnotationCanvas({
           src={imageSrc}
           alt="Product Reference"
           style={{
-            maxWidth: '100%',
-            maxHeight: '100%',
-            objectFit: 'contain',
+            width: '100%',
+            height: '100%',
+            objectFit: fit || 'cover',
+            objectPosition: `${panX ?? 50}% ${panY ?? 50}%`,
+            transform: zoom && zoom !== 1 ? `scale(${zoom})` : 'none',
+            transformOrigin: `${panX ?? 50}% ${panY ?? 50}%`,
             pointerEvents: 'none',
             display: 'block',
           }}

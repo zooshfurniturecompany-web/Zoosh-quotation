@@ -12,6 +12,7 @@ import ReviewSyncModal from './ReviewSyncModal';
 import ReviewToolbar, { TOOLS } from './ReviewToolbar';
 import AnnotationCanvas from './AnnotationCanvas';
 import CropModal from './CropModal';
+import InlineImageCropper from './InlineImageCropper';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
@@ -101,7 +102,25 @@ export default function ReviewSheet({
   const [syncTargetQuote, setSyncTargetQuote] = useState(null);
   const [syncDiff, setSyncDiff] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [cropTarget, setCropTarget] = useState(null); // { productId, imageType: 'primary' | 'additional', imageId, imageSrc }
+  const [cropTarget, setCropTarget] = useState(null); // Legacy modal fallback
+
+  // Layout & Client Remarks Position ('left' | 'right', defaults to 'left' per user request)
+  const [remarksPosition, setRemarksPosition] = useState('left');
+
+  // WordPress-style in-screen image cropping and interactive repositioning
+  const [inlineCropTarget, setInlineCropTarget] = useState(null); // { productId, imageType: 'primary' | 'additional', imageId, imageSrc }
+  const [repositionTarget, setRepositionTarget] = useState(null); // { productId, imageType, imageId }
+  const [repositionState, setRepositionState] = useState({
+    isDragging: false,
+    startX: 0,
+    startY: 0,
+    initialPanX: 50,
+    initialPanY: 50,
+    panX: 50,
+    panY: 50,
+    zoom: 1,
+  });
+  const [imageFitModes, setImageFitModes] = useState({}); // { [key]: 'cover' | 'contain' }
 
   // Load Review Document on mount or when initialSeries / initialQuote changes
   useEffect(() => {
@@ -138,6 +157,9 @@ export default function ReviewSheet({
 
         if (isMounted) {
           setDoc(reviewDoc);
+          if (reviewDoc.remarksPosition) {
+            setRemarksPosition(reviewDoc.remarksPosition);
+          }
           const baseline = {};
           (reviewDoc.products || []).forEach((p) => {
             baseline[p.id] = JSON.stringify({
@@ -664,18 +686,29 @@ export default function ReviewSheet({
     }
   };
 
-  const handleApplyCrop = (croppedDataUrl) => {
-    if (!cropTarget) return;
-    const { productId, imageType, imageId } = cropTarget;
+  const handleApplyCrop = async (croppedDataUrl) => {
+    const target = inlineCropTarget || cropTarget;
+    if (!target) return;
+    const { productId, imageType, imageId } = target;
     const prod = doc.products.find((p) => p.id === productId);
     if (!prod) return;
 
     if (imageType === 'primary') {
-      handleProductUpdate(productId, {
-        photo: croppedDataUrl,
-        originalPhoto: prod.originalPhoto || prod.photo,
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return {
+            ...p,
+            photo: croppedDataUrl,
+            originalPhoto: p.originalPhoto || p.photo,
+          };
+        }
+        return p;
       });
-      addToast('Applied crop to Reference Image', 'success');
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast('Applied in-screen crop to Reference Image', 'success');
     } else if (imageType === 'additional') {
       const updatedAddImgs = (prod.additionalImages || []).map((img) => {
         if (img.id === imageId) {
@@ -687,22 +720,44 @@ export default function ReviewSheet({
         }
         return img;
       });
-      handleProductUpdate(productId, { additionalImages: updatedAddImgs });
-      addToast('Applied crop to additional image', 'success');
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return { ...p, additionalImages: updatedAddImgs };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast('Applied in-screen crop to additional image', 'success');
     }
+    setInlineCropTarget(null);
     setCropTarget(null);
   };
 
-  const handleResetCrop = (productId, imageType, imageId) => {
+  const handleResetCrop = async (productId, imageType, imageId) => {
     const prod = doc.products.find((p) => p.id === productId);
     if (!prod) return;
 
     if (imageType === 'primary' && prod.originalPhoto) {
-      handleProductUpdate(productId, {
-        photo: prod.originalPhoto,
-        originalPhoto: null,
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return {
+            ...p,
+            photo: prod.originalPhoto,
+            originalPhoto: null,
+            photoPan: { x: 50, y: 50 },
+            photoZoom: 1,
+          };
+        }
+        return p;
       });
-      addToast('Restored original crop for Reference Image', 'success');
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast('Restored original Reference Image', 'success');
     } else if (imageType === 'additional') {
       const updatedAddImgs = (prod.additionalImages || []).map((img) => {
         if (img.id === imageId && img.originalUrl) {
@@ -710,14 +765,134 @@ export default function ReviewSheet({
             ...img,
             url: img.originalUrl,
             originalUrl: null,
+            pan: { x: 50, y: 50 },
+            zoom: 1,
           };
         }
         return img;
       });
-      handleProductUpdate(productId, { additionalImages: updatedAddImgs });
-      addToast('Restored original crop for additional image', 'success');
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return { ...p, additionalImages: updatedAddImgs };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast('Restored original additional image', 'success');
+    }
+    setInlineCropTarget(null);
+  };
+
+  // Toggle Client Remarks column position (Left vs Right)
+  const handleToggleRemarksPosition = async () => {
+    const nextPos = remarksPosition === 'left' ? 'right' : 'left';
+    setRemarksPosition(nextPos);
+    if (doc && !isViewingSnapshot) {
+      const updatedDoc = { ...doc, remarksPosition: nextPos };
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+    }
+    addToast(`Client Remarks positioned on ${nextPos.toUpperCase()}`, 'info');
+  };
+
+  // Toggle Image Fit (cover = Fill Frame with No Blank Spaces, contain = Fit Whole Image)
+  const handleToggleImageFit = (imgKey) => {
+    setImageFitModes((prev) => {
+      const current = prev[imgKey] || 'cover';
+      const next = current === 'cover' ? 'contain' : 'cover';
+      addToast(next === 'cover' ? 'Fill Frame (No Blank Space)' : 'Fit Whole Image', 'info');
+      return { ...prev, [imgKey]: next };
+    });
+  };
+
+  // Interactive Pan / Reposition Mode (WordPress-style)
+  const handleStartMove = (productId, imageType, imageId, currentPan = { x: 50, y: 50 }, currentZoom = 1) => {
+    if (repositionTarget && repositionTarget.productId === productId && repositionTarget.imageId === imageId) {
+      setRepositionTarget(null);
+    } else {
+      setRepositionTarget({ productId, imageType, imageId });
+      setRepositionState({
+        isDragging: false,
+        startX: 0,
+        startY: 0,
+        initialPanX: currentPan?.x ?? 50,
+        initialPanY: currentPan?.y ?? 50,
+        panX: currentPan?.x ?? 50,
+        panY: currentPan?.y ?? 50,
+        zoom: currentZoom ?? 1,
+      });
+      const imgKey = imageType === 'primary' ? `pri-${productId}` : `add-${imageId}`;
+      setImageFitModes((prev) => ({ ...prev, [imgKey]: 'cover' }));
     }
   };
+
+  const handleCommitMove = async (productId, imageType, imageId) => {
+    const { panX, panY, zoom } = repositionState;
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    if (imageType === 'primary') {
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return { ...p, photoPan: { x: panX, y: panY }, photoZoom: zoom };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+    } else {
+      const updatedAddImgs = (prod.additionalImages || []).map((img) => {
+        if (img.id === imageId) {
+          return { ...img, pan: { x: panX, y: panY }, zoom };
+        }
+        return img;
+      });
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return { ...p, additionalImages: updatedAddImgs };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+    }
+    setRepositionTarget(null);
+    addToast('Saved image framing', 'success');
+  };
+
+  // Window listeners for WordPress-style image repositioning drag
+  useEffect(() => {
+    if (!repositionTarget || !repositionState.isDragging) return;
+
+    const handleWindowMouseMove = (e) => {
+      const dx = e.clientX - repositionState.startX;
+      const dy = e.clientY - repositionState.startY;
+      const sensitivity = 0.25; // Smooth dragging
+      const newPanX = Math.max(0, Math.min(100, repositionState.initialPanX - dx * sensitivity));
+      const newPanY = Math.max(0, Math.min(100, repositionState.initialPanY - dy * sensitivity));
+      setRepositionState((prev) => ({
+        ...prev,
+        panX: Math.round(newPanX),
+        panY: Math.round(newPanY),
+      }));
+    };
+
+    const handleWindowMouseUp = () => {
+      setRepositionState((prev) => ({ ...prev, isDragging: false }));
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [repositionTarget, repositionState.isDragging, repositionState.startX, repositionState.startY, repositionState.initialPanX, repositionState.initialPanY]);
 
   const handleToggleImageLock = (productId, imageType, imageId) => {
     const prod = doc.products.find((p) => p.id === productId);
@@ -969,6 +1144,24 @@ export default function ReviewSheet({
               {saving ? 'Saving...' : '💾 Save Document'}
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={handleToggleRemarksPosition}
+            style={{
+              background: 'rgba(255,255,255,0.18)',
+              color: '#ffffff',
+              border: '1px solid rgba(255,255,255,0.35)',
+              padding: '5px 12px',
+              fontSize: '11px',
+              fontWeight: 600,
+              borderRadius: '3px',
+              cursor: 'pointer',
+            }}
+            title="Toggle Client Remarks column between Left and Right"
+          >
+            Remarks: {remarksPosition === 'left' ? '◀ Left' : 'Right ▶'}
+          </button>
 
           <button
             type="button"
@@ -1333,645 +1526,1032 @@ export default function ReviewSheet({
                       <span>📥</span>
                       <span>Word (.docx)</span>
                     </button>
+                    <button
+                      type="button"
+                      className="no-print del-btn"
+                      onClick={handleToggleRemarksPosition}
+                      style={{
+                        borderColor: '#2b579a',
+                        color: '#2b579a',
+                        fontSize: '10px',
+                        padding: '2px 8px',
+                      }}
+                      title="Toggle Client Remarks between Left and Right"
+                    >
+                      Remarks: {remarksPosition === 'left' ? '◀ Left' : 'Right ▶'}
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Main Product Layout: Left Workspace + Right Client Remarks Column */}
+              {/* Main Product Layout: Configurable Remarks Column Position (Defaults to LEFT as requested) */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: isPortrait ? '1fr' : '1fr 240px',
-                  gap: '18px',
+                  gridTemplateColumns: isPortrait
+                    ? (remarksPosition === 'left' ? '195px 1fr' : '1fr 195px')
+                    : (remarksPosition === 'left' ? '230px 1fr' : '1fr 230px'),
+                  gap: '16px',
                   alignItems: 'stretch',
                   flex: 1,
+                  minHeight: 0,
                 }}
               >
-                {/* =========================================================
-                    LEFT SECTION: Primary Image Workspace, Additional Views, Fabric Table
-                ========================================================= */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  {/* Primary Reference Image Workspace & Additional Images Grid (Section 4) */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {additionalImgs.length === 0 ? (
-                      /* 1 Single Primary Image (Dominant full-width card) */
-                      <div
-                        style={{
-                          position: 'relative',
-                          border: '1.5px solid #111111',
-                          background: '#ffffff',
-                          height: isPortrait ? '360px' : '350px',
-                          width: '100%',
-                          boxSizing: 'border-box',
-                        }}
-                      >
-                        {/* Header Badges & Controls */}
-                        <div
+                {/* -------------------------------------------------------------
+                    COLUMN A: Client Remarks Column (Rendered on Left by Default)
+                ------------------------------------------------------------- */}
+                {(() => {
+                  const remarksColumnNode = (
+                    <div
+                      key="remarks-col"
+                      style={{
+                        borderRight: remarksPosition === 'left' ? '1.5px solid #111111' : 'none',
+                        borderLeft: remarksPosition === 'right' ? '1.5px solid #111111' : 'none',
+                        paddingRight: remarksPosition === 'left' ? '14px' : '0',
+                        paddingLeft: remarksPosition === 'right' ? '14px' : '0',
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+                        <h3
                           style={{
-                            position: 'absolute',
-                            top: '8px',
-                            left: '8px',
-                            right: '8px',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            zIndex: 20,
-                            pointerEvents: 'none',
+                            fontFamily: 'var(--font-sans)',
+                            fontSize: '13px',
+                            fontWeight: 800,
+                            textDecoration: 'underline',
+                            textTransform: 'uppercase',
+                            margin: '0 0 4px',
+                            letterSpacing: '0.04em',
+                            color: '#111111',
                           }}
                         >
-                          <div
-                            style={{
-                              background: '#e3f2fd',
-                              border: '1px solid #90caf9',
-                              padding: '3px 8px',
-                              fontSize: '10px',
-                              fontWeight: 800,
-                              color: '#1565c0',
-                              borderRadius: '2px',
-                              letterSpacing: '0.04em',
-                              pointerEvents: 'auto',
-                            }}
-                          >
-                            Reference Image
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '5px', pointerEvents: 'auto' }} className="no-print">
-                            {product.originalPhoto && (
-                              <button
-                                type="button"
-                                onClick={() => handleResetCrop(product.id, 'primary')}
-                                style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                title="Reset to original uncropped image"
-                              >
-                                ↺ Reset Crop
-                              </button>
-                            )}
-                            {!isViewingSnapshot && (
-                              <button
-                                type="button"
-                                onClick={() => setCropTarget({ productId: product.id, imageType: 'primary', imageSrc: product.originalPhoto || product.photo })}
-                                style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                title="Crop Reference Image"
-                              >
-                                ✂️ Crop
-                              </button>
-                            )}
-                            {!isViewingSnapshot && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleImageLock(product.id, 'primary')}
-                                style={{
-                                  background: product.imageLocked ? '#111' : '#fff',
-                                  color: product.imageLocked ? '#fff' : '#111',
-                                  border: '1px solid #ccc',
-                                  padding: '2px 6px',
-                                  fontSize: '9px',
-                                  cursor: 'pointer',
-                                  borderRadius: '2px',
-                                }}
-                              >
-                                {product.imageLocked ? '🔒 Locked' : '🔓 Lock'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div style={{ width: '100%', height: '100%' }}>
-                          <AnnotationCanvas
-                            imageSrc={product.photo}
-                            annotations={product.annotations || []}
-                            onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                            activeTool={activeTool}
-                            activeColor={activeColor}
-                            activeStroke={activeStroke}
-                            isLocked={product.imageLocked}
-                            isReadOnly={isViewingSnapshot}
-                            onApproveProduct={() => {
-                              if (!isApproved) handleToggleApproval(product);
-                            }}
-                          />
+                          CLIENT REMARKS
+                        </h3>
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textDecoration: 'underline',
+                            color: '#111111',
+                          }}
+                        >
+                          Revision : {product.remarksRevision || '00'}
                         </div>
                       </div>
-                    ) : (
-                      /* Image Grid: Primary Reference Image dominant on Left, Additional Views on Right */
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
-                          gap: '10px',
-                          alignItems: 'stretch',
-                        }}
-                      >
-                        {/* Dominant Primary Reference Image */}
-                        <div
-                          style={{
-                            position: 'relative',
-                            border: '1.5px solid #111111',
-                            background: '#ffffff',
-                            height: isPortrait ? '320px' : '330px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: '8px',
-                              left: '8px',
-                              right: '8px',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              zIndex: 20,
-                              pointerEvents: 'none',
+
+                      {/* Add Client Remark Field at TOP of Client Remarks (hidden on print) */}
+                      {!isViewingSnapshot && (
+                        <div className="no-print" style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '12px' }}>
+                          <input
+                            placeholder="+ Add client remark..."
+                            className="inp"
+                            style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.target.value.trim()) {
+                                handleAddClientRemark(product.id, e.target.value);
+                                e.target.value = '';
+                              }
                             }}
-                          >
-                            <div
-                              style={{
-                                background: '#e3f2fd',
-                                border: '1px solid #90caf9',
-                                padding: '3px 8px',
-                                fontSize: '10px',
-                                fontWeight: 800,
-                                color: '#1565c0',
-                                borderRadius: '2px',
-                                letterSpacing: '0.04em',
-                                pointerEvents: 'auto',
-                              }}
-                            >
-                              Reference Image
-                            </div>
-
-                            <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
-                              {product.originalPhoto && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleResetCrop(product.id, 'primary')}
-                                  style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                  title="Reset crop"
-                                >
-                                  ↺ Reset
-                                </button>
-                              )}
-                              {!isViewingSnapshot && (
-                                <button
-                                  type="button"
-                                  onClick={() => setCropTarget({ productId: product.id, imageType: 'primary', imageSrc: product.originalPhoto || product.photo })}
-                                  style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                  title="Crop"
-                                >
-                                  ✂️ Crop
-                                </button>
-                              )}
-                              {!isViewingSnapshot && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleImageLock(product.id, 'primary')}
-                                  style={{
-                                    background: product.imageLocked ? '#111' : '#fff',
-                                    color: product.imageLocked ? '#fff' : '#111',
-                                    border: '1px solid #ccc',
-                                    padding: '2px 5px',
-                                    fontSize: '9px',
-                                    cursor: 'pointer',
-                                    borderRadius: '2px',
-                                  }}
-                                >
-                                  {product.imageLocked ? '🔒' : '🔓'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div style={{ width: '100%', height: '100%' }}>
-                            <AnnotationCanvas
-                              imageSrc={product.photo}
-                              annotations={product.annotations || []}
-                              onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                              activeTool={activeTool}
-                              activeColor={activeColor}
-                              activeStroke={activeStroke}
-                              isLocked={product.imageLocked}
-                              isReadOnly={isViewingSnapshot}
-                              onApproveProduct={() => {
-                                if (!isApproved) handleToggleApproval(product);
-                              }}
-                            />
+                          />
+                          <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
+                            Press Enter to save remark (increments Remarks Rev)
                           </div>
                         </div>
+                      )}
 
-                        {/* Additional Images Cells (Up to 4 images on Page 1, subsequent on Continuation Page) */}
-                        <div
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: additionalImgs.length > 2 ? '1fr 1fr' : '1fr',
-                            gap: '8px',
-                            alignContent: 'start',
-                          }}
-                        >
-                          {additionalImgs.slice(0, 4).map((img, addIdx) => (
+                      {/* Numbered List of Client Remarks (Reference Image 2) */}
+                      <ol
+                        style={{
+                          margin: 0,
+                          paddingLeft: '18px',
+                          fontSize: '11px',
+                          lineHeight: 1.8,
+                          color: '#111111',
+                          flex: 1,
+                        }}
+                      >
+                        {(product.clientRemarks && product.clientRemarks.length > 0) ? (
+                          product.clientRemarks.map((rem, rIdx) => (
+                            <li key={rIdx} style={{ marginBottom: '6px' }}>
+                              <span>{rem}</span>
+                              {!isViewingSnapshot && (
+                                <button
+                                  type="button"
+                                  className="no-print"
+                                  onClick={() => handleRemoveClientRemark(product.id, rIdx)}
+                                  style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', marginLeft: '6px', fontSize: '10px' }}
+                                  title="Remove remark"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </li>
+                          ))
+                        ) : (
+                          <li style={{ fontStyle: 'italic', color: '#888' }}>
+                            No client remarks recorded.
+                          </li>
+                        )}
+                      </ol>
+                    </div>
+                  );
+
+                  const workspaceColumnNode = (
+                    <div
+                      key="workspace-col"
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                    >
+                      {/* Primary Reference Image Workspace & Additional Images Grid */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {additionalImgs.length === 0 ? (
+                          /* 1 Single Primary Image (Dominant full-width card with in-screen crop & pan) */
+                          <div
+                            style={{
+                              position: 'relative',
+                              border: '1.5px solid #111111',
+                              background: '#ffffff',
+                              height: isPortrait ? '340px' : '350px',
+                              width: '100%',
+                              boxSizing: 'border-box',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {/* In-Screen Cropper (WordPress style) */}
+                            {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'primary' ? (
+                              <InlineImageCropper
+                                imageSrc={inlineCropTarget.imageSrc}
+                                onApply={handleApplyCrop}
+                                onCancel={() => setInlineCropTarget(null)}
+                                onReset={() => handleResetCrop(product.id, 'primary')}
+                                hasOriginal={!!product.originalPhoto}
+                              />
+                            ) : (
+                              <>
+                                {/* Header Badges & Interactive Controls */}
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: '8px',
+                                    left: '8px',
+                                    right: '8px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    zIndex: 20,
+                                    pointerEvents: 'none',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      background: '#e3f2fd',
+                                      border: '1px solid #90caf9',
+                                      padding: '3px 8px',
+                                      fontSize: '10px',
+                                      fontWeight: 800,
+                                      color: '#1565c0',
+                                      borderRadius: '2px',
+                                      letterSpacing: '0.04em',
+                                      pointerEvents: 'auto',
+                                    }}
+                                  >
+                                    Reference Image
+                                  </div>
+
+                                  <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
+                                    {(product.originalPhoto || product.photoPan || (product.photoZoom && product.photoZoom !== 1)) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleResetCrop(product.id, 'primary')}
+                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                        title="Reset image crop and position"
+                                      >
+                                        ↺ Reset
+                                      </button>
+                                    )}
+                                    {!isViewingSnapshot && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleStartMove(product.id, 'primary', null, product.photoPan, product.photoZoom)}
+                                        style={{
+                                          background: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#2b579a' : '#fff',
+                                          color: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#fff' : '#111',
+                                          border: '1px solid #ccc',
+                                          padding: '2px 6px',
+                                          fontSize: '9px',
+                                          cursor: 'pointer',
+                                          borderRadius: '2px',
+                                          fontWeight: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? 700 : 400,
+                                        }}
+                                        title="Move & reposition image inside frame (WordPress pan)"
+                                      >
+                                        ✋ Move
+                                      </button>
+                                    )}
+                                    {!isViewingSnapshot && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'primary', imageId: null, imageSrc: product.originalPhoto || product.photo })}
+                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                        title="Crop image directly on screen"
+                                      >
+                                        ✂️ Crop
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleImageFit(`pri-${product.id}`)}
+                                      style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                      title="Toggle between Fill Frame (No Blank Space) and Fit Whole Image"
+                                    >
+                                      {(imageFitModes[`pri-${product.id}`] || 'cover') === 'cover' ? '🔲 Fill Frame' : '🖼 Fit'}
+                                    </button>
+                                    {!isViewingSnapshot && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleImageLock(product.id, 'primary')}
+                                        style={{
+                                          background: product.imageLocked ? '#111' : '#fff',
+                                          color: product.imageLocked ? '#fff' : '#111',
+                                          border: '1px solid #ccc',
+                                          padding: '2px 6px',
+                                          fontSize: '9px',
+                                          cursor: 'pointer',
+                                          borderRadius: '2px',
+                                        }}
+                                        title={product.imageLocked ? 'Locked' : 'Unlocked'}
+                                      >
+                                        {product.imageLocked ? '🔒' : '🔓'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Interactive Move Banner overlay when moving */}
+                                {repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' && (
+                                  <div
+                                    className="no-print"
+                                    style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      background: 'rgba(24, 24, 27, 0.95)',
+                                      color: '#ffffff',
+                                      padding: '5px 10px',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      zIndex: 35,
+                                      fontSize: '10px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Move:</span>
+                                      <span>Drag image to position</span>
+                                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                                        <span>Zoom:</span>
+                                        <input
+                                          type="range"
+                                          min="1"
+                                          max="2.5"
+                                          step="0.05"
+                                          value={repositionState.zoom}
+                                          onChange={(e) => setRepositionState((prev) => ({ ...prev, zoom: parseFloat(e.target.value) }))}
+                                          style={{ width: '60px', accentColor: '#2b579a', cursor: 'pointer' }}
+                                        />
+                                        <span>{Math.round(repositionState.zoom * 100)}%</span>
+                                      </label>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
+                                        style={{ background: '#333', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', fontSize: '9px' }}
+                                      >
+                                        Center
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCommitMove(product.id, 'primary', null)}
+                                        style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '9px' }}
+                                      >
+                                        ✓ Done
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')
+                                      ? (repositionState.isDragging ? 'grabbing' : 'grab')
+                                      : 'default',
+                                  }}
+                                  onMouseDown={(e) => {
+                                    if (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') {
+                                      e.preventDefault();
+                                      setRepositionState((prev) => ({
+                                        ...prev,
+                                        isDragging: true,
+                                        startX: e.clientX,
+                                        startY: e.clientY,
+                                        initialPanX: prev.panX,
+                                        initialPanY: prev.panY,
+                                      }));
+                                    }
+                                  }}
+                                >
+                                  <AnnotationCanvas
+                                    imageSrc={product.photo}
+                                    annotations={product.annotations || []}
+                                    onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                                    activeTool={activeTool}
+                                    activeColor={activeColor}
+                                    activeStroke={activeStroke}
+                                    isLocked={product.imageLocked || (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')}
+                                    isReadOnly={isViewingSnapshot}
+                                    onApproveProduct={() => {
+                                      if (!isApproved) handleToggleApproval(product);
+                                    }}
+                                    fit={imageFitModes[`pri-${product.id}`] || 'cover'}
+                                    panX={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panX : (product.photoPan?.x ?? 50)}
+                                    panY={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panY : (product.photoPan?.y ?? 50)}
+                                    zoom={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.zoom : (product.photoZoom ?? 1)}
+                                  />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          /* Image Grid: Primary Reference Image dominant + Additional Views Grid (Zero Blank Spaces) */
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
+                              gap: '10px',
+                              alignItems: 'stretch',
+                            }}
+                          >
+                            {/* Dominant Primary Reference Image Card */}
                             <div
-                              key={img.id}
                               style={{
                                 position: 'relative',
-                                border: '1px solid #bbb',
+                                border: '1.5px solid #111111',
                                 background: '#ffffff',
-                                height: additionalImgs.length === 1 ? (isPortrait ? '320px' : '330px') : (isPortrait ? '160px' : '158px'),
-                                display: 'flex',
-                                flexDirection: 'column',
+                                height: isPortrait ? '270px' : '330px',
                                 boxSizing: 'border-box',
                                 overflow: 'hidden',
                               }}
                             >
-                              <div
-                                style={{
-                                  padding: '4px 8px',
-                                  background: '#f1f3f5',
-                                  borderBottom: '1px solid #ddd',
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  color: '#333',
-                                }}
-                              >
-                                <span>{img.label || `Picture - ${addIdx + 2}`}</span>
-                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} className="no-print">
-                                  {!img.locked && !isViewingSnapshot && (
-                                    <>
-                                      {addIdx > 0 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
-                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                          title="Move view earlier"
-                                        >
-                                          ◀
-                                        </button>
-                                      )}
-                                      {addIdx < additionalImgs.length - 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
-                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                          title="Move view later"
-                                        >
-                                          ▶
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-                                  {img.originalUrl && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleResetCrop(product.id, 'additional', img.id)}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                      title="Reset crop"
-                                    >
-                                      ↺
-                                    </button>
-                                  )}
-                                  {!isViewingSnapshot && !img.locked && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                      title="Crop"
-                                    >
-                                      ✂️
-                                    </button>
-                                  )}
-                                  {!isViewingSnapshot && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                      title={img.locked ? 'Locked' : 'Unlocked'}
-                                    >
-                                      {img.locked ? '🔒' : '🔓'}
-                                    </button>
-                                  )}
-                                  {!isViewingSnapshot && !img.locked && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                      style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
-                                      title="Remove view"
-                                    >
-                                      ✕
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', padding: '4px' }}>
-                                <img
-                                  src={img.url}
-                                  alt={img.label}
-                                  style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '100%',
-                                    objectFit: 'contain',
-                                    display: 'block',
-                                  }}
+                              {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'primary' ? (
+                                <InlineImageCropper
+                                  imageSrc={inlineCropTarget.imageSrc}
+                                  onApply={handleApplyCrop}
+                                  onCancel={() => setInlineCropTarget(null)}
+                                  onReset={() => handleResetCrop(product.id, 'primary')}
+                                  hasOriginal={!!product.originalPhoto}
                                 />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                              ) : (
+                                <>
+                                  <div
+                                    style={{
+                                      position: 'absolute',
+                                      top: '8px',
+                                      left: '8px',
+                                      right: '8px',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      zIndex: 20,
+                                      pointerEvents: 'none',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        background: '#e3f2fd',
+                                        border: '1px solid #90caf9',
+                                        padding: '3px 8px',
+                                        fontSize: '10px',
+                                        fontWeight: 800,
+                                        color: '#1565c0',
+                                        borderRadius: '2px',
+                                        letterSpacing: '0.04em',
+                                        pointerEvents: 'auto',
+                                      }}
+                                    >
+                                      Reference Image
+                                    </div>
 
-                    {/* Upload New Additional Image control (Hidden in print) */}
-                    {!isViewingSnapshot && (
-                      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
-                        <label
-                          style={{
-                            fontSize: '10px',
-                            color: '#2b579a',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          + Upload Additional Image (Picture - {additionalImgs.length + 2})
-                          <input
-                            type="file"
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            onChange={(e) => handleAddAdditionalImage(product.id, e)}
-                          />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Selected Materials Table (Exact Reference Image 1 Layout) */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Selected Materials
-                      </span>
-                      {!isViewingSnapshot && (
-                        <button
-                          type="button"
-                          className="no-print del-btn"
-                          onClick={() => handleAddFabricRow(product.id)}
-                          style={{ fontSize: '10px', padding: '2px 8px' }}
-                        >
-                          + Add Material Row
-                        </button>
-                      )}
-                    </div>
-
-                    {(!product.fabricSelections || product.fabricSelections.length === 0) ? (
-                      <div
-                        style={{
-                          fontSize: '10px',
-                          color: 'var(--gray)',
-                          fontStyle: 'italic',
-                          padding: '10px',
-                          background: '#f8f9fa',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '2px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        No materials specified yet. Click "+ Add Material Row" to allocate materials.
-                      </div>
-                    ) : (
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', border: '1px solid #111' }}>
-                          <thead>
-                            <tr style={{ background: '#f8f9fa', borderBottom: '1.5px solid #111' }}>
-                              <th style={{ padding: '6px 4px', textAlign: 'center', width: '32px', borderRight: '1px solid #111' }}>Sl. No.</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Part Name</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Specification</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Code</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px', borderRight: '1px solid #111' }}>Reference Image</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', width: '60px', borderRight: '1px solid #111' }}>Qty</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left' }}>Remark</th>
-                              {!isViewingSnapshot && <th className="no-print" style={{ width: '20px' }}></th>}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {product.fabricSelections.map((fab, fIdx) => (
-                              <tr key={fab.id || fIdx} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 600, borderRight: '1px solid #e5e7eb' }}>{fIdx + 1}</td>
-                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                  {!isViewingSnapshot ? (
-                                    <input
-                                      className="inp"
-                                      style={{ padding: '2px 4px', fontSize: '10px' }}
-                                      value={fab.partName || ''}
-                                      placeholder="e.g. Seating"
-                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'partName', e.target.value)}
-                                    />
-                                  ) : (
-                                    fab.partName || '—'
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                  {!isViewingSnapshot ? (
-                                    <input
-                                      className="inp"
-                                      style={{ padding: '2px 4px', fontSize: '10px' }}
-                                      value={fab.specification || fab.brand || ''}
-                                      placeholder="e.g. Sarom"
-                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'specification', e.target.value)}
-                                    />
-                                  ) : (
-                                    fab.specification || fab.brand || '—'
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                  {!isViewingSnapshot ? (
-                                    <input
-                                      className="inp"
-                                      style={{ padding: '2px 4px', fontSize: '10px' }}
-                                      value={fab.code || fab.catalogueCode || ''}
-                                      placeholder="e.g. 241"
-                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'code', e.target.value)}
-                                    />
-                                  ) : (
-                                    fab.code || fab.catalogueCode || '—'
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #e5e7eb' }}>
-                                  {fab.refImage ? (
-                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                      <img
-                                        src={fab.refImage}
-                                        alt="Swatch"
-                                        style={{ width: '44px', height: '30px', objectFit: 'cover', border: '1px solid #ccc', borderRadius: '1px' }}
-                                      />
+                                    <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
+                                      {(product.originalPhoto || product.photoPan || (product.photoZoom && product.photoZoom !== 1)) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleResetCrop(product.id, 'primary')}
+                                          style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                          title="Reset crop & positioning"
+                                        >
+                                          ↺ Reset
+                                        </button>
+                                      )}
                                       {!isViewingSnapshot && (
                                         <button
                                           type="button"
-                                          className="no-print"
-                                          onClick={() => handleFabricFieldChange(product.id, fab.id, 'refImage', null)}
-                                          style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '9px' }}
-                                          title="Remove swatch"
+                                          onClick={() => handleStartMove(product.id, 'primary', null, product.photoPan, product.photoZoom)}
+                                          style={{
+                                            background: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#2b579a' : '#fff',
+                                            color: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#fff' : '#111',
+                                            border: '1px solid #ccc',
+                                            padding: '2px 5px',
+                                            fontSize: '9px',
+                                            cursor: 'pointer',
+                                            borderRadius: '2px',
+                                            fontWeight: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? 700 : 400,
+                                          }}
+                                          title="Move & reposition image"
                                         >
-                                          ✕
+                                          ✋ Move
+                                        </button>
+                                      )}
+                                      {!isViewingSnapshot && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'primary', imageId: null, imageSrc: product.originalPhoto || product.photo })}
+                                          style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                          title="Crop image on screen"
+                                        >
+                                          ✂️ Crop
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleImageFit(`pri-${product.id}`)}
+                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                        title="Toggle between Fill Frame and Fit Image"
+                                      >
+                                        {(imageFitModes[`pri-${product.id}`] || 'cover') === 'cover' ? '🔲 Fill' : '🖼 Fit'}
+                                      </button>
+                                      {!isViewingSnapshot && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleImageLock(product.id, 'primary')}
+                                          style={{
+                                            background: product.imageLocked ? '#111' : '#fff',
+                                            color: product.imageLocked ? '#fff' : '#111',
+                                            border: '1px solid #ccc',
+                                            padding: '2px 5px',
+                                            fontSize: '9px',
+                                            cursor: 'pointer',
+                                            borderRadius: '2px',
+                                          }}
+                                          title={product.imageLocked ? 'Locked' : 'Unlocked'}
+                                        >
+                                          {product.imageLocked ? '🔒' : '🔓'}
                                         </button>
                                       )}
                                     </div>
-                                  ) : (
-                                    !isViewingSnapshot ? (
-                                      <label style={{ fontSize: '9px', color: '#2b579a', cursor: 'pointer', textDecoration: 'underline' }}>
-                                        📷 Upload
-                                        <input
-                                          type="file"
-                                          accept="image/*"
-                                          style={{ display: 'none' }}
-                                          onChange={(e) => handleFabricSwatchUpload(product.id, fab.id, e.target.files?.[0])}
-                                        />
-                                      </label>
-                                    ) : (
-                                      <span style={{ color: '#aaa', fontSize: '9px' }}>None</span>
-                                    )
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                  {!isViewingSnapshot ? (
-                                    <input
-                                      className="inp"
-                                      style={{ padding: '2px 4px', fontSize: '10px', width: '45px' }}
-                                      value={fab.qty || fab.totalMeter || ''}
-                                      placeholder="e.g. 6 mtr"
-                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'qty', e.target.value)}
-                                    />
-                                  ) : (
-                                    fab.qty || fab.totalMeter || '—'
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px 6px' }}>
-                                  {!isViewingSnapshot ? (
-                                    <input
-                                      className="inp"
-                                      style={{ padding: '2px 4px', fontSize: '10px' }}
-                                      value={fab.remark || ''}
-                                      placeholder="e.g. Contrast"
-                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'remark', e.target.value)}
-                                    />
-                                  ) : (
-                                    fab.remark || '—'
-                                  )}
-                                </td>
-                                {!isViewingSnapshot && (
-                                  <td className="no-print" style={{ padding: '4px' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleRemoveFabricRow(product.id, fab.id)}
-                                      style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px' }}
+                                  </div>
+
+                                  {repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' && (
+                                    <div
+                                      className="no-print"
+                                      style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        background: 'rgba(24, 24, 27, 0.95)',
+                                        color: '#ffffff',
+                                        padding: '5px 10px',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        zIndex: 35,
+                                        fontSize: '10px',
+                                      }}
                                     >
-                                      ✕
-                                    </button>
-                                  </td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Move:</span>
+                                        <span>Drag image</span>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                                          <span>Zoom:</span>
+                                          <input
+                                            type="range"
+                                            min="1"
+                                            max="2.5"
+                                            step="0.05"
+                                            value={repositionState.zoom}
+                                            onChange={(e) => setRepositionState((prev) => ({ ...prev, zoom: parseFloat(e.target.value) }))}
+                                            style={{ width: '60px', accentColor: '#2b579a', cursor: 'pointer' }}
+                                          />
+                                          <span>{Math.round(repositionState.zoom * 100)}%</span>
+                                        </label>
+                                      </div>
+                                      <div style={{ display: 'flex', gap: '4px' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
+                                          style={{ background: '#333', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', fontSize: '9px' }}
+                                        >
+                                          Center
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCommitMove(product.id, 'primary', null)}
+                                          style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '9px' }}
+                                        >
+                                          ✓ Done
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div
+                                    style={{
+                                      width: '100%',
+                                      height: '100%',
+                                      cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')
+                                        ? (repositionState.isDragging ? 'grabbing' : 'grab')
+                                        : 'default',
+                                    }}
+                                    onMouseDown={(e) => {
+                                      if (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') {
+                                        e.preventDefault();
+                                        setRepositionState((prev) => ({
+                                          ...prev,
+                                          isDragging: true,
+                                          startX: e.clientX,
+                                          startY: e.clientY,
+                                          initialPanX: prev.panX,
+                                          initialPanY: prev.panY,
+                                        }));
+                                      }
+                                    }}
+                                  >
+                                    <AnnotationCanvas
+                                      imageSrc={product.photo}
+                                      annotations={product.annotations || []}
+                                      onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                                      activeTool={activeTool}
+                                      activeColor={activeColor}
+                                      activeStroke={activeStroke}
+                                      isLocked={product.imageLocked || (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')}
+                                      isReadOnly={isViewingSnapshot}
+                                      onApproveProduct={() => {
+                                        if (!isApproved) handleToggleApproval(product);
+                                      }}
+                                      fit={imageFitModes[`pri-${product.id}`] || 'cover'}
+                                      panX={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panX : (product.photoPan?.x ?? 50)}
+                                      panY={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panY : (product.photoPan?.y ?? 50)}
+                                      zoom={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.zoom : (product.photoZoom ?? 1)}
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Additional Images Cells: 2-column balanced grid to eliminate horizontal blank spaces */}
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: additionalImgs.length >= 2 ? 'repeat(2, 1fr)' : '1fr',
+                                gap: '8px',
+                                alignContent: 'start',
+                              }}
+                            >
+                              {additionalImgs.slice(0, 4).map((img, addIdx) => (
+                                <div
+                                  key={img.id}
+                                  style={{
+                                    position: 'relative',
+                                    border: '1px solid #bbb',
+                                    background: '#ffffff',
+                                    height: additionalImgs.length === 1 ? (isPortrait ? '270px' : '330px') : (isPortrait ? '140px' : '158px'),
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    boxSizing: 'border-box',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'additional' && inlineCropTarget.imageId === img.id ? (
+                                    <InlineImageCropper
+                                      imageSrc={inlineCropTarget.imageSrc}
+                                      onApply={handleApplyCrop}
+                                      onCancel={() => setInlineCropTarget(null)}
+                                      onReset={() => handleResetCrop(product.id, 'additional', img.id)}
+                                      hasOriginal={!!img.originalUrl}
+                                    />
+                                  ) : (
+                                    <>
+                                      <div
+                                        style={{
+                                          padding: '4px 6px',
+                                          background: '#f1f3f5',
+                                          borderBottom: '1px solid #ddd',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          fontSize: '9px',
+                                          fontWeight: 700,
+                                          color: '#333',
+                                          zIndex: 10,
+                                        }}
+                                      >
+                                        <span>{img.label || `Picture - ${addIdx + 2}`}</span>
+                                        <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }} className="no-print">
+                                          {!img.locked && !isViewingSnapshot && (
+                                            <>
+                                              {addIdx > 0 && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
+                                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                                  title="Move view earlier"
+                                                >
+                                                  ◀
+                                                </button>
+                                              )}
+                                              {addIdx < additionalImgs.length - 1 && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
+                                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                                  title="Move view later"
+                                                >
+                                                  ▶
+                                                </button>
+                                              )}
+                                            </>
+                                          )}
+                                          {(img.originalUrl || img.pan || (img.zoom && img.zoom !== 1)) && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleResetCrop(product.id, 'additional', img.id)}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                              title="Reset crop & positioning"
+                                            >
+                                              ↺
+                                            </button>
+                                          )}
+                                          {!isViewingSnapshot && !img.locked && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartMove(product.id, 'additional', img.id, img.pan, img.zoom)}
+                                              style={{
+                                                background: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) ? '#2b579a' : 'none',
+                                                color: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) ? '#fff' : 'inherit',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                fontSize: '9px',
+                                                padding: '1px 3px',
+                                                borderRadius: '2px',
+                                              }}
+                                              title="Move image position"
+                                            >
+                                              ✋
+                                            </button>
+                                          )}
+                                          {!isViewingSnapshot && !img.locked && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                              title="Crop image directly on screen"
+                                            >
+                                              ✂️
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleImageFit(`add-${img.id}`)}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                            title="Toggle Fill Frame (No Blank Space) or Fit Image"
+                                          >
+                                            {(imageFitModes[`add-${img.id}`] || 'cover') === 'cover' ? '🔲' : '🖼'}
+                                          </button>
+                                          {!isViewingSnapshot && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                              title={img.locked ? 'Locked' : 'Unlocked'}
+                                            >
+                                              {img.locked ? '🔒' : '🔓'}
+                                            </button>
+                                          )}
+                                          {!isViewingSnapshot && !img.locked && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                              style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                                              title="Remove view"
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Interactive Move overlay for additional image */}
+                                      {repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id && (
+                                        <div
+                                          className="no-print"
+                                          style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            right: 0,
+                                            background: 'rgba(24, 24, 27, 0.95)',
+                                            color: '#ffffff',
+                                            padding: '3px 6px',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            zIndex: 35,
+                                            fontSize: '9px',
+                                          }}
+                                        >
+                                          <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Drag to position</span>
+                                          <div style={{ display: 'flex', gap: '3px' }}>
+                                            <button
+                                              type="button"
+                                              onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
+                                              style={{ background: '#333', color: '#fff', border: 'none', padding: '1px 4px', borderRadius: '2px', cursor: 'pointer', fontSize: '8px' }}
+                                            >
+                                              Center
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCommitMove(product.id, 'additional', img.id)}
+                                              style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '1px 6px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '8px' }}
+                                            >
+                                              ✓ Done
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      <div
+                                        style={{
+                                          flex: 1,
+                                          position: 'relative',
+                                          overflow: 'hidden',
+                                          background: '#fafafa',
+                                          cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id)
+                                            ? (repositionState.isDragging ? 'grabbing' : 'grab')
+                                            : 'default',
+                                        }}
+                                        onMouseDown={(e) => {
+                                          if (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) {
+                                            e.preventDefault();
+                                            setRepositionState((prev) => ({
+                                              ...prev,
+                                              isDragging: true,
+                                              startX: e.clientX,
+                                              startY: e.clientY,
+                                              initialPanX: prev.panX,
+                                              initialPanY: prev.panY,
+                                            }));
+                                          }
+                                        }}
+                                      >
+                                        <img
+                                          src={img.url}
+                                          alt={img.label}
+                                          style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            objectFit: imageFitModes[`add-${img.id}`] || 'cover',
+                                            objectPosition: `${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.panX : (img.pan?.x ?? 50)}% ${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.panY : (img.pan?.y ?? 50)}%`,
+                                            transform: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.zoom : (img.zoom ?? 1)) !== 1
+                                              ? `scale(${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.zoom : (img.zoom ?? 1)})`
+                                              : 'none',
+                                            display: 'block',
+                                            pointerEvents: 'none',
+                                          }}
+                                        />
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upload New Additional Image control (Hidden in print) */}
+                        {!isViewingSnapshot && (
+                          <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
+                            <label
+                              style={{
+                                fontSize: '10px',
+                                color: '#2b579a',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              + Upload Additional Image (Picture - {additionalImgs.length + 2})
+                              <input
+                                type="file"
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                                onChange={(e) => handleAddAdditionalImage(product.id, e)}
+                              />
+                            </label>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                {/* =========================================================
-                    RIGHT SECTION: Dedicated Fixed-Width CLIENT REMARKS Column (Reference Image 2)
-                ========================================================= */}
-                <div
-                  style={{
-                    borderLeft: '1.5px solid #111111',
-                    paddingLeft: '18px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
-                  <div style={{ textAlign: 'center', marginBottom: '14px' }}>
-                    <h3
-                      style={{
-                        fontFamily: 'var(--font-sans)',
-                        fontSize: '13px',
-                        fontWeight: 800,
-                        textDecoration: 'underline',
-                        textTransform: 'uppercase',
-                        margin: '0 0 4px',
-                        letterSpacing: '0.04em',
-                        color: '#111111',
-                      }}
-                    >
-                      CLIENT REMARKS
-                    </h3>
-                    <div
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        textDecoration: 'underline',
-                        color: '#111111',
-                      }}
-                    >
-                      Revision : {product.remarksRevision || '00'}
-                    </div>
-                  </div>
-
-                  {/* Add Client Remark Field at TOP of Client Remarks (hidden on print) */}
-                  {!isViewingSnapshot && (
-                    <div className="no-print" style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '12px' }}>
-                      <input
-                        placeholder="+ Add client remark..."
-                        className="inp"
-                        style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            handleAddClientRemark(product.id, e.target.value);
-                            e.target.value = '';
-                          }
-                        }}
-                      />
-                      <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
-                        Press Enter to save remark (increments Remarks Rev)
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Numbered List of Client Remarks (Reference Image 2) */}
-                  <ol
-                    style={{
-                      margin: 0,
-                      paddingLeft: '18px',
-                      fontSize: '11px',
-                      lineHeight: 1.8,
-                      color: '#111111',
-                      flex: 1,
-                    }}
-                  >
-                    {(product.clientRemarks && product.clientRemarks.length > 0) ? (
-                      product.clientRemarks.map((rem, rIdx) => (
-                        <li key={rIdx} style={{ marginBottom: '6px' }}>
-                          <span>{rem}</span>
+                      {/* Selected Materials Table (Exact Reference Image 1 Layout) */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Selected Materials
+                          </span>
                           {!isViewingSnapshot && (
                             <button
                               type="button"
-                              className="no-print"
-                              onClick={() => handleRemoveClientRemark(product.id, rIdx)}
-                              style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', marginLeft: '6px', fontSize: '10px' }}
-                              title="Remove remark"
+                              className="no-print del-btn"
+                              onClick={() => handleAddFabricRow(product.id)}
+                              style={{ fontSize: '10px', padding: '2px 8px' }}
                             >
-                              ✕
+                              + Add Material Row
                             </button>
                           )}
-                        </li>
-                      ))
-                    ) : (
-                      <li style={{ fontStyle: 'italic', color: '#888' }}>
-                        No client remarks recorded.
-                      </li>
-                    )}
-                  </ol>
-                </div>
+                        </div>
+
+                        {(!product.fabricSelections || product.fabricSelections.length === 0) ? (
+                          <div
+                            style={{
+                              fontSize: '10px',
+                              color: 'var(--gray)',
+                              fontStyle: 'italic',
+                              padding: '10px',
+                              background: '#f8f9fa',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '2px',
+                              textAlign: 'center',
+                            }}
+                          >
+                            No materials specified yet. Click "+ Add Material Row" to allocate materials.
+                          </div>
+                        ) : (
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', border: '1px solid #111' }}>
+                              <thead>
+                                <tr style={{ background: '#f8f9fa', borderBottom: '1.5px solid #111' }}>
+                                  <th style={{ padding: '6px 4px', textAlign: 'center', width: '32px', borderRight: '1px solid #111' }}>Sl. No.</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Part Name</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Specification</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Code</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px', borderRight: '1px solid #111' }}>Reference Image</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'left', width: '60px', borderRight: '1px solid #111' }}>Qty</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Remark</th>
+                                  {!isViewingSnapshot && <th className="no-print" style={{ width: '20px' }}></th>}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {product.fabricSelections.map((fab, fIdx) => (
+                                  <tr key={fab.id || fIdx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                    <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 600, borderRight: '1px solid #e5e7eb' }}>{fIdx + 1}</td>
+                                    <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                      {!isViewingSnapshot ? (
+                                        <input
+                                          className="inp"
+                                          style={{ padding: '2px 4px', fontSize: '10px' }}
+                                          value={fab.partName || ''}
+                                          placeholder="e.g. Seating"
+                                          onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'partName', e.target.value)}
+                                        />
+                                      ) : (
+                                        fab.partName || '—'
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                      {!isViewingSnapshot ? (
+                                        <input
+                                          className="inp"
+                                          style={{ padding: '2px 4px', fontSize: '10px' }}
+                                          value={fab.specification || fab.brand || ''}
+                                          placeholder="e.g. Sarom"
+                                          onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'specification', e.target.value)}
+                                        />
+                                      ) : (
+                                        fab.specification || fab.brand || '—'
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                      {!isViewingSnapshot ? (
+                                        <input
+                                          className="inp"
+                                          style={{ padding: '2px 4px', fontSize: '10px' }}
+                                          value={fab.code || fab.catalogueCode || ''}
+                                          placeholder="e.g. 241"
+                                          onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'code', e.target.value)}
+                                        />
+                                      ) : (
+                                        fab.code || fab.catalogueCode || '—'
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #e5e7eb' }}>
+                                      {fab.refImage ? (
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                          <img
+                                            src={fab.refImage}
+                                            alt="Swatch"
+                                            style={{ width: '44px', height: '30px', objectFit: 'cover', border: '1px solid #ccc', borderRadius: '1px' }}
+                                          />
+                                          {!isViewingSnapshot && (
+                                            <button
+                                              type="button"
+                                              className="no-print"
+                                              onClick={() => handleFabricFieldChange(product.id, fab.id, 'refImage', null)}
+                                              style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '9px' }}
+                                              title="Remove swatch"
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        !isViewingSnapshot ? (
+                                          <label style={{ fontSize: '9px', color: '#2b579a', cursor: 'pointer', textDecoration: 'underline' }}>
+                                            📷 Upload
+                                            <input
+                                              type="file"
+                                              accept="image/*"
+                                              style={{ display: 'none' }}
+                                              onChange={(e) => handleFabricSwatchUpload(product.id, fab.id, e.target.files?.[0])}
+                                            />
+                                          </label>
+                                        ) : (
+                                          <span style={{ color: '#aaa', fontSize: '9px' }}>None</span>
+                                        )
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                      {!isViewingSnapshot ? (
+                                        <input
+                                          className="inp"
+                                          style={{ padding: '2px 4px', fontSize: '10px', width: '45px' }}
+                                          value={fab.qty || fab.totalMeter || ''}
+                                          placeholder="e.g. 6 mtr"
+                                          onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'qty', e.target.value)}
+                                        />
+                                      ) : (
+                                        fab.qty || fab.totalMeter || '—'
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '4px 6px' }}>
+                                      {!isViewingSnapshot ? (
+                                        <input
+                                          className="inp"
+                                          style={{ padding: '2px 4px', fontSize: '10px' }}
+                                          value={fab.remark || ''}
+                                          placeholder="e.g. Contrast"
+                                          onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'remark', e.target.value)}
+                                        />
+                                      ) : (
+                                        fab.remark || '—'
+                                      )}
+                                    </td>
+                                    {!isViewingSnapshot && (
+                                      <td className="no-print" style={{ padding: '4px' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemoveFabricRow(product.id, fab.id)}
+                                          style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px' }}
+                                        >
+                                          ✕
+                                        </button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+
+                  return (
+                    <>
+                      {remarksPosition === 'left' ? remarksColumnNode : workspaceColumnNode}
+                      {remarksPosition === 'left' ? workspaceColumnNode : remarksColumnNode}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2047,6 +2627,9 @@ export default function ReviewSheet({
                 >
                   {additionalImgs.slice(4).map((img, addIdx) => {
                     const trueIdx = addIdx + 4;
+                    const isInlineCroppingThis = inlineCropTarget?.productId === product.id && inlineCropTarget?.imageId === img.id;
+                    const isRepositioningThis = repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id;
+
                     return (
                       <div
                         key={img.id}
@@ -2061,100 +2644,206 @@ export default function ReviewSheet({
                           overflow: 'hidden',
                         }}
                       >
-                        <div
-                          style={{
-                            padding: '4px 8px',
-                            background: '#f1f3f5',
-                            borderBottom: '1px solid #ddd',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            color: '#333',
-                          }}
-                        >
-                          <span>{img.label || `Picture - ${trueIdx + 2}`}</span>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} className="no-print">
-                            {!img.locked && !isViewingSnapshot && (
-                              <>
-                                {trueIdx > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                    title="Move view earlier"
-                                  >
-                                    ◀
-                                  </button>
-                                )}
-                                {trueIdx < additionalImgs.length - 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                    title="Move view later"
-                                  >
-                                    ▶
-                                  </button>
-                                )}
-                              </>
-                            )}
-                            {img.originalUrl && (
-                              <button
-                                type="button"
-                                onClick={() => handleResetCrop(product.id, 'additional', img.id)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                title="Reset crop"
-                              >
-                                ↺
-                              </button>
-                            )}
-                            {!isViewingSnapshot && !img.locked && (
-                              <button
-                                type="button"
-                                onClick={() => setCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                title="Crop"
-                              >
-                                ✂️
-                              </button>
-                            )}
-                            {!isViewingSnapshot && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                title={img.locked ? 'Locked' : 'Unlocked'}
-                              >
-                                {img.locked ? '🔒' : '🔓'}
-                              </button>
-                            )}
-                            {!isViewingSnapshot && !img.locked && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
-                                title="Remove view"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', padding: '6px' }}>
-                          <img
-                            src={img.url}
-                            alt={img.label}
-                            style={{
-                              maxWidth: '100%',
-                              maxHeight: '100%',
-                              objectFit: 'contain',
-                              display: 'block',
-                            }}
+                        {isInlineCroppingThis ? (
+                          <InlineImageCropper
+                            imageSrc={inlineCropTarget.imageSrc}
+                            onApply={handleApplyCrop}
+                            onCancel={() => setInlineCropTarget(null)}
+                            onReset={() => handleResetCrop(product.id, 'additional', img.id)}
+                            hasOriginal={!!img.originalUrl}
                           />
-                        </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                padding: '4px 8px',
+                                background: '#f1f3f5',
+                                borderBottom: '1px solid #ddd',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                color: '#333',
+                                zIndex: 10,
+                              }}
+                            >
+                              <span>{img.label || `Picture - ${trueIdx + 2}`}</span>
+                              <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }} className="no-print">
+                                {!img.locked && !isViewingSnapshot && (
+                                  <>
+                                    {trueIdx > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                        title="Move view earlier"
+                                      >
+                                        ◀
+                                      </button>
+                                    )}
+                                    {trueIdx < additionalImgs.length - 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                        title="Move view later"
+                                      >
+                                        ▶
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                {(img.originalUrl || img.pan || (img.zoom && img.zoom !== 1)) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleResetCrop(product.id, 'additional', img.id)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                    title="Reset crop & positioning"
+                                  >
+                                    ↺
+                                  </button>
+                                )}
+                                {!isViewingSnapshot && !img.locked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartMove(product.id, 'additional', img.id, img.pan, img.zoom)}
+                                    style={{
+                                      background: isRepositioningThis ? '#2b579a' : 'none',
+                                      color: isRepositioningThis ? '#fff' : 'inherit',
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      fontSize: '9px',
+                                      padding: '1px 3px',
+                                      borderRadius: '2px',
+                                    }}
+                                    title="Move image position"
+                                  >
+                                    ✋
+                                  </button>
+                                )}
+                                {!isViewingSnapshot && !img.locked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                    title="Crop image directly on screen"
+                                  >
+                                    ✂️
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleImageFit(`add-${img.id}`)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                  title="Toggle Fill Frame (No Blank Space) or Fit Image"
+                                >
+                                  {(imageFitModes[`add-${img.id}`] || 'cover') === 'cover' ? '🔲' : '🖼'}
+                                </button>
+                                {!isViewingSnapshot && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                    title={img.locked ? 'Locked' : 'Unlocked'}
+                                  >
+                                    {img.locked ? '🔒' : '🔓'}
+                                  </button>
+                                )}
+                                {!isViewingSnapshot && !img.locked && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                    style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                                    title="Remove view"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Interactive Move overlay for additional image */}
+                            {isRepositioningThis && (
+                              <div
+                                className="no-print"
+                                style={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  background: 'rgba(24, 24, 27, 0.95)',
+                                  color: '#ffffff',
+                                  padding: '3px 6px',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  zIndex: 35,
+                                  fontSize: '9px',
+                                }}
+                              >
+                                <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Drag to position</span>
+                                <div style={{ display: 'flex', gap: '3px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
+                                    style={{ background: '#333', color: '#fff', border: 'none', padding: '1px 4px', borderRadius: '2px', cursor: 'pointer', fontSize: '8px' }}
+                                  >
+                                    Center
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCommitMove(product.id, 'additional', img.id)}
+                                    style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '1px 6px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '8px' }}
+                                  >
+                                    ✓ Done
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            <div
+                              style={{
+                                flex: 1,
+                                position: 'relative',
+                                overflow: 'hidden',
+                                background: '#fafafa',
+                                cursor: isRepositioningThis
+                                  ? (repositionState.isDragging ? 'grabbing' : 'grab')
+                                  : 'default',
+                              }}
+                              onMouseDown={(e) => {
+                                if (isRepositioningThis) {
+                                  e.preventDefault();
+                                  setRepositionState((prev) => ({
+                                    ...prev,
+                                    isDragging: true,
+                                    startX: e.clientX,
+                                    startY: e.clientY,
+                                    initialPanX: prev.panX,
+                                    initialPanY: prev.panY,
+                                  }));
+                                }
+                              }}
+                            >
+                              <img
+                                src={img.url}
+                                alt={img.label}
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: imageFitModes[`add-${img.id}`] || 'cover',
+                                  objectPosition: `${isRepositioningThis ? repositionState.panX : (img.pan?.x ?? 50)}% ${isRepositioningThis ? repositionState.panY : (img.pan?.y ?? 50)}%`,
+                                  transform: (isRepositioningThis ? repositionState.zoom : (img.zoom ?? 1)) !== 1
+                                    ? `scale(${isRepositioningThis ? repositionState.zoom : (img.zoom ?? 1)})`
+                                    : 'none',
+                                  display: 'block',
+                                  pointerEvents: 'none',
+                                }}
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
                     );
                   })}

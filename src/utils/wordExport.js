@@ -1057,27 +1057,44 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       }
     }
 
-    // Main 2-column table layout with vertical divider
+    // Main 2-column table layout with vertical divider (respecting remarksPosition)
+    const remarksPos = doc?.remarksPosition || 'left';
     const contentTable = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       borders: borderNoneObj,
       rows: [
         new TableRow({
-          children: [
-            new TableCell({
-              width: { size: isPortrait ? 100 : 70, type: WidthType.PERCENTAGE },
-              borders: borderNoneObj,
-              children: leftChildren,
-            }),
-            new TableCell({
-              width: { size: isPortrait ? 100 : 30, type: WidthType.PERCENTAGE },
-              borders: {
-                ...borderNoneObj,
-                left: { style: BorderStyle.SINGLE, size: 8, color: '111111' },
-              },
-              children: rightRemarksChildren,
-            }),
-          ],
+          children: remarksPos === 'left'
+            ? [
+                new TableCell({
+                  width: { size: isPortrait ? 30 : 28, type: WidthType.PERCENTAGE },
+                  borders: {
+                    ...borderNoneObj,
+                    right: { style: BorderStyle.SINGLE, size: 8, color: '111111' },
+                  },
+                  children: rightRemarksChildren,
+                }),
+                new TableCell({
+                  width: { size: isPortrait ? 70 : 72, type: WidthType.PERCENTAGE },
+                  borders: borderNoneObj,
+                  children: leftChildren,
+                }),
+              ]
+            : [
+                new TableCell({
+                  width: { size: isPortrait ? 70 : 72, type: WidthType.PERCENTAGE },
+                  borders: borderNoneObj,
+                  children: leftChildren,
+                }),
+                new TableCell({
+                  width: { size: isPortrait ? 30 : 28, type: WidthType.PERCENTAGE },
+                  borders: {
+                    ...borderNoneObj,
+                    left: { style: BorderStyle.SINGLE, size: 8, color: '111111' },
+                  },
+                  children: rightRemarksChildren,
+                }),
+              ],
         }),
       ],
     });
