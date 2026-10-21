@@ -1044,7 +1044,7 @@ th {
   }
 }
 
-/* ===== REVIEW MODULE & PRINT STYLES ===== */
+/* ===== REVIEW MODULE & MICROSOFT WORD ENVIRONMENT STYLES ===== */
 .no-print {
   /* Class to hide application toolbar, audit logs, and controls during print */
 }
@@ -1052,29 +1052,27 @@ th {
 @media print {
   .no-print,
   .navbar,
-  .hero {
+  .hero,
+  .review-toolbar-ribbon {
     display: none !important;
   }
 
-  body, .review-module-root {
+  body, .review-word-environment, .word-workspace-canvas {
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  .review-document-container {
-    max-width: 100% !important;
+  .word-page-sheet {
+    width: 100% !important;
+    min-height: auto !important;
     margin: 0 !important;
-    padding: 10mm 15mm !important;
+    padding: 12mm 15mm !important;
     box-shadow: none !important;
     border: none !important;
-  }
-
-  .review-product-card {
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    margin-bottom: 20px !important;
-    border: 1px solid #ddd !important;
+    page-break-after: always !important;
+    break-after: page !important;
   }
 }
+
 
