@@ -18,8 +18,8 @@ export default function AnnotationCanvas({
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
 
-  // Dragging existing annotation
-  const [draggingAnn, setDraggingAnn] = useState(null); // { id, startMouseX, startMouseY, origX1, origY1, origX2, origY2 }
+  // Dragging existing annotation state (stored temporarily until mouseUp to avoid flooding undo stack)
+  const [dragState, setDragState] = useState(null); // { id, startX, startY, origX1, origY1, origX2, origY2, dx, dy }
 
   // Keyboard shortcut for Delete
   useEffect(() => {
@@ -111,23 +111,11 @@ export default function AnnotationCanvas({
 
   // Mouse Move handler
   const handleMouseMove = (e) => {
-    if (draggingAnn) {
+    if (dragState) {
       const coords = getRelativeCoords(e);
-      const dx = coords.x - draggingAnn.startMouseX;
-      const dy = coords.y - draggingAnn.startMouseY;
-
-      onChangeAnnotations(
-        annotations.map((ann) => {
-          if (ann.id !== draggingAnn.id) return ann;
-          return {
-            ...ann,
-            x1: parseFloat((draggingAnn.origX1 + dx).toFixed(2)),
-            y1: parseFloat((draggingAnn.origY1 + dy).toFixed(2)),
-            x2: ann.x2 !== undefined ? parseFloat((draggingAnn.origX2 + dx).toFixed(2)) : undefined,
-            y2: ann.y2 !== undefined ? parseFloat((draggingAnn.origY2 + dy).toFixed(2)) : undefined,
-          };
-        })
-      );
+      const dx = coords.x - dragState.startX;
+      const dy = coords.y - dragState.startY;
+      setDragState((prev) => (prev ? { ...prev, dx, dy } : null));
       return;
     }
 
@@ -150,8 +138,23 @@ export default function AnnotationCanvas({
 
   // Mouse Up handler
   const handleMouseUp = (e) => {
-    if (draggingAnn) {
-      setDraggingAnn(null);
+    if (dragState) {
+      const { id, origX1, origY1, origX2, origY2, dx, dy } = dragState;
+      setDragState(null);
+      if (Math.abs(dx) > 0.3 || Math.abs(dy) > 0.3) {
+        onChangeAnnotations(
+          annotations.map((ann) => {
+            if (ann.id !== id) return ann;
+            return {
+              ...ann,
+              x1: parseFloat((origX1 + dx).toFixed(2)),
+              y1: parseFloat((origY1 + dy).toFixed(2)),
+              x2: ann.x2 !== undefined ? parseFloat((origX2 + dx).toFixed(2)) : undefined,
+              y2: ann.y2 !== undefined ? parseFloat((origY2 + dy).toFixed(2)) : undefined,
+            };
+          })
+        );
+      }
       return;
     }
 
@@ -299,14 +302,16 @@ export default function AnnotationCanvas({
     if (isReadOnly || isLocked) return;
     setSelectedId(ann.id);
     const coords = getRelativeCoords(e);
-    setDraggingAnn({
+    setDragState({
       id: ann.id,
-      startMouseX: coords.x,
-      startMouseY: coords.y,
+      startX: coords.x,
+      startY: coords.y,
       origX1: ann.x1,
       origY1: ann.y1,
-      origX2: ann.x2 || ann.x1,
-      origY2: ann.y2 || ann.y1,
+      origX2: ann.x2 !== undefined ? ann.x2 : ann.x1,
+      origY2: ann.y2 !== undefined ? ann.y2 : ann.y1,
+      dx: 0,
+      dy: 0,
     });
   };
 
@@ -424,7 +429,16 @@ export default function AnnotationCanvas({
         </defs>
 
         {/* Existing Annotations */}
-        {annotations.map((ann) => {
+        {annotations.map((rawAnn) => {
+          const ann = (dragState && dragState.id === rawAnn.id)
+            ? {
+                ...rawAnn,
+                x1: parseFloat((dragState.origX1 + dragState.dx).toFixed(2)),
+                y1: parseFloat((dragState.origY1 + dragState.dy).toFixed(2)),
+                x2: rawAnn.x2 !== undefined ? parseFloat((dragState.origX2 + dragState.dx).toFixed(2)) : undefined,
+                y2: rawAnn.y2 !== undefined ? parseFloat((dragState.origY2 + dragState.dy).toFixed(2)) : undefined,
+              }
+            : rawAnn;
           const isSel = selectedId === ann.id;
           const stroke = ann.color || '#e74c3c';
           const sw = ann.strokeWidth || 2;

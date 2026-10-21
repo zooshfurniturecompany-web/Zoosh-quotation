@@ -121,30 +121,126 @@ export default function ReviewSheet({
     }
   };
 
+  // Word-like Undo / Redo engine with Ref persistence
+  const docRef = useRef(doc);
+  useEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
+
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const lastTypingTimeRef = useRef(0);
+
   // Push state to undo stack before mutation
-  const pushToUndo = () => {
-    if (!doc) return;
-    setUndoStack((prev) => [...prev.slice(-15), JSON.stringify(doc.products)]);
+  const pushToUndo = (productsSnapshot) => {
+    const toSave = productsSnapshot || docRef.current?.products;
+    if (!toSave) return;
+    const serialized = JSON.stringify(toSave);
+    const stack = undoStackRef.current;
+    
+    // Avoid storing identical consecutive states
+    if (stack.length > 0 && stack[stack.length - 1] === serialized) return;
+
+    stack.push(serialized);
+    if (stack.length > 50) {
+      stack.shift();
+    }
+    redoStackRef.current = [];
+    setUndoStack([...stack]);
     setRedoStack([]);
   };
 
   const handleUndo = () => {
-    if (undoStack.length === 0 || isViewingSnapshot) return;
-    const last = undoStack[undoStack.length - 1];
-    setRedoStack((prev) => [...prev, JSON.stringify(doc.products)]);
-    setUndoStack((prev) => prev.slice(0, -1));
-    setDoc((prev) => ({ ...prev, products: JSON.parse(last) }));
-    addToast('Undo action applied', 'info');
+    if (undoStackRef.current.length === 0 || isViewingSnapshot) return;
+    const previousSerialized = undoStackRef.current.pop();
+    if (docRef.current?.products) {
+      redoStackRef.current.push(JSON.stringify(docRef.current.products));
+      if (redoStackRef.current.length > 50) {
+        redoStackRef.current.shift();
+      }
+    }
+    setUndoStack([...undoStackRef.current]);
+    setRedoStack([...redoStackRef.current]);
+
+    try {
+      const restoredProducts = JSON.parse(previousSerialized);
+      setDoc((prev) => ({ ...prev, products: restoredProducts }));
+      addToast('Undo (Ctrl+Z) applied', 'info');
+    } catch (e) {
+      console.error('Error applying undo:', e);
+    }
   };
 
   const handleRedo = () => {
-    if (redoStack.length === 0 || isViewingSnapshot) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack((prev) => [...prev, JSON.stringify(doc.products)]);
-    setRedoStack((prev) => prev.slice(0, -1));
-    setDoc((prev) => ({ ...prev, products: JSON.parse(next) }));
-    addToast('Redo action applied', 'info');
+    if (redoStackRef.current.length === 0 || isViewingSnapshot) return;
+    const nextSerialized = redoStackRef.current.pop();
+    if (docRef.current?.products) {
+      undoStackRef.current.push(JSON.stringify(docRef.current.products));
+      if (undoStackRef.current.length > 50) {
+        undoStackRef.current.shift();
+      }
+    }
+    setUndoStack([...undoStackRef.current]);
+    setRedoStack([...redoStackRef.current]);
+
+    try {
+      const restoredProducts = JSON.parse(nextSerialized);
+      setDoc((prev) => ({ ...prev, products: restoredProducts }));
+      addToast('Redo (Ctrl+Y) applied', 'info');
+    } catch (e) {
+      console.error('Error applying redo:', e);
+    }
   };
+
+  // Global Keyboard shortcuts: Ctrl+Z (Undo), Ctrl+Y / Ctrl+Shift+Z (Redo), Ctrl+S (Save)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (isViewingSnapshot) return;
+
+      const activeEl = document.activeElement;
+      const tag = activeEl?.tagName?.toLowerCase();
+      const isTyping = tag === 'input' || tag === 'textarea' || activeEl?.isContentEditable;
+
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdOrCtrl && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'z') {
+          if (e.shiftKey) {
+            // Redo: Ctrl + Shift + Z
+            if (!isTyping) {
+              e.preventDefault();
+              handleRedo();
+            }
+          } else {
+            // Undo: Ctrl + Z
+            if (!isTyping) {
+              e.preventDefault();
+              handleUndo();
+            }
+          }
+        } else if (key === 'y') {
+          // Redo: Ctrl + Y
+          if (!isTyping) {
+            e.preventDefault();
+            handleRedo();
+          }
+        } else if (key === 's') {
+          // Save: Ctrl + S
+          e.preventDefault();
+          if (docRef.current) {
+            handleSaveActiveDoc(docRef.current);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [isViewingSnapshot]);
 
   // Switch to an earlier snapshot
   const handleSelectSnapshot = (sheetNo) => {
@@ -198,12 +294,20 @@ export default function ReviewSheet({
   };
 
   // Product field update handlers for active document
-  const handleProductUpdate = (productId, updates) => {
+  const handleProductUpdate = (productId, updates, isTypingField = false) => {
     if (isViewingSnapshot) {
       addToast('Historical snapshots are read-only', 'warning');
       return;
     }
-    pushToUndo();
+    if (isTypingField) {
+      const now = Date.now();
+      if (now - lastTypingTimeRef.current > 800) {
+        pushToUndo(docRef.current?.products);
+      }
+      lastTypingTimeRef.current = now;
+    } else {
+      pushToUndo(docRef.current?.products);
+    }
     setDoc((prev) => {
       const newProducts = prev.products.map((p) => {
         if (p.id === productId) {
@@ -269,7 +373,7 @@ export default function ReviewSheet({
     const updated = (prod.fabricSelections || []).map((row) =>
       row.id === rowId ? { ...row, [field]: val } : row
     );
-    handleProductUpdate(productId, { fabricSelections: updated });
+    handleProductUpdate(productId, { fabricSelections: updated }, true);
   };
 
   const handleRemoveFabricRow = (productId, rowId) => {
@@ -1195,7 +1299,7 @@ export default function ReviewSheet({
                           rows={4}
                           placeholder="Type customer notes, finish instructions, or specific upholstery preferences..."
                           value={product.customerNotes || ''}
-                          onChange={(e) => handleProductUpdate(product.id, { customerNotes: e.target.value })}
+                          onChange={(e) => handleProductUpdate(product.id, { customerNotes: e.target.value }, true)}
                           style={{
                             width: '100%',
                             boxSizing: 'border-box',
