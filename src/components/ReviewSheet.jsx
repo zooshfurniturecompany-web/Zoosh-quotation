@@ -13,6 +13,7 @@ import ReviewToolbar, { TOOLS } from './ReviewToolbar';
 import AnnotationCanvas from './AnnotationCanvas';
 import CropModal from './CropModal';
 import InlineImageCropper from './InlineImageCropper';
+import WordStyleImageFrame from './WordStyleImageFrame';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
@@ -784,6 +785,55 @@ export default function ReviewSheet({
       addToast('Restored original additional image', 'success');
     }
     setInlineCropTarget(null);
+  };
+
+  const handleApplyFrameCrop = async (productId, imageType, imageId, { croppedUrl, pan, zoom }) => {
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    if (imageType === 'primary') {
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return {
+            ...p,
+            photo: croppedUrl || p.photo,
+            originalPhoto: croppedUrl ? (p.originalPhoto || p.photo) : p.originalPhoto,
+            photoPan: pan || p.photoPan || { x: 50, y: 50 },
+            photoZoom: zoom !== undefined ? zoom : (p.photoZoom ?? 1),
+          };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast(croppedUrl ? 'Cropped Reference Image with handles' : 'Updated image position', 'success');
+    } else if (imageType === 'additional') {
+      const updatedAddImgs = (prod.additionalImages || []).map((img) => {
+        if (img.id === imageId) {
+          return {
+            ...img,
+            url: croppedUrl || img.url,
+            originalUrl: croppedUrl ? (img.originalUrl || img.url) : img.originalUrl,
+            pan: pan || img.pan || { x: 50, y: 50 },
+            zoom: zoom !== undefined ? zoom : (img.zoom ?? 1),
+          };
+        }
+        return img;
+      });
+      const updatedProducts = doc.products.map((p) => {
+        if (p.id === productId) {
+          return { ...p, additionalImages: updatedAddImgs };
+        }
+        return p;
+      });
+      const updatedDoc = { ...doc, products: updatedProducts };
+      pushToUndo(doc.products);
+      setDoc(updatedDoc);
+      await saveReviewDocument(updatedDoc);
+      addToast(croppedUrl ? 'Cropped additional view with handles' : 'Updated view position', 'success');
+    }
   };
 
   // Toggle Client Remarks column position (Left vs Right)
@@ -1669,456 +1719,60 @@ export default function ReviewSheet({
                       }}
                     >
                       {/* Primary Reference Image Workspace & Additional Images Grid */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {additionalImgs.length === 0 ? (
-                          /* 1 Single Primary Image (Dominant full-width card with in-screen crop & pan) */
-                          <div
-                            style={{
-                              position: 'relative',
-                              border: '1.5px solid #111111',
-                              background: '#ffffff',
-                              height: isPortrait ? '340px' : '350px',
-                              width: '100%',
-                              boxSizing: 'border-box',
-                              overflow: 'hidden',
+                      <div
+                        style={additionalImgs.length > 0 ? {
+                          display: 'grid',
+                          gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
+                          gap: '10px',
+                          alignItems: 'stretch',
+                        } : {
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                        }}
+                      >
+                        {/* Dominant Primary Reference Image Card with Word-Style 8-handle Crop & Move */}
+                        <WordStyleImageFrame
+                          imageSrc={product.photo}
+                          originalSrc={product.originalPhoto}
+                          label="PICTURE - 1: QUOTATION REFERENCE & PRODUCTION DRAWING"
+                          panX={product.photoPan?.x ?? 50}
+                          panY={product.photoPan?.y ?? 50}
+                          zoom={product.photoZoom ?? 1}
+                          fit={imageFitModes[`pri-${product.id}`] || 'cover'}
+                          isLocked={product.imageLocked}
+                          readOnly={isViewingSnapshot}
+                          height={additionalImgs.length === 0 ? (isPortrait ? '340px' : '360px') : (isPortrait ? '270px' : '330px')}
+                          onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'primary', null, data)}
+                          onResetOriginal={() => handleResetCrop(product.id, 'primary')}
+                          onToggleFit={() => handleToggleImageFit(`pri-${product.id}`)}
+                          onToggleLock={() => handleToggleImageLock(product.id, 'primary')}
+                        >
+                          <AnnotationCanvas
+                            imageSrc={product.photo}
+                            annotations={product.annotations || []}
+                            onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                            activeTool={activeTool}
+                            activeColor={activeColor}
+                            activeStroke={activeStroke}
+                            isLocked={product.imageLocked}
+                            isReadOnly={isViewingSnapshot}
+                            onApproveProduct={() => {
+                              if (!isApproved) handleToggleApproval(product);
                             }}
-                          >
-                            {/* In-Screen Cropper (WordPress style) */}
-                            {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'primary' ? (
-                              <InlineImageCropper
-                                imageSrc={inlineCropTarget.imageSrc}
-                                onApply={handleApplyCrop}
-                                onCancel={() => setInlineCropTarget(null)}
-                                onReset={() => handleResetCrop(product.id, 'primary')}
-                                hasOriginal={!!product.originalPhoto}
-                              />
-                            ) : (
-                              <>
-                                {/* Header Badges & Interactive Controls */}
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: '8px',
-                                    left: '8px',
-                                    right: '8px',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    zIndex: 20,
-                                    pointerEvents: 'none',
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      background: '#e3f2fd',
-                                      border: '1px solid #90caf9',
-                                      padding: '3px 8px',
-                                      fontSize: '10px',
-                                      fontWeight: 800,
-                                      color: '#1565c0',
-                                      borderRadius: '2px',
-                                      letterSpacing: '0.04em',
-                                      pointerEvents: 'auto',
-                                    }}
-                                  >
-                                    Reference Image
-                                  </div>
+                            fit={imageFitModes[`pri-${product.id}`] || 'cover'}
+                            panX={product.photoPan?.x ?? 50}
+                            panY={product.photoPan?.y ?? 50}
+                            zoom={product.photoZoom ?? 1}
+                          />
+                        </WordStyleImageFrame>
 
-                                  <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
-                                    {(product.originalPhoto || product.photoPan || (product.photoZoom && product.photoZoom !== 1)) && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleResetCrop(product.id, 'primary')}
-                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                        title="Reset image crop and position"
-                                      >
-                                        ↺ Reset
-                                      </button>
-                                    )}
-                                    {!isViewingSnapshot && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleStartMove(product.id, 'primary', null, product.photoPan, product.photoZoom)}
-                                        style={{
-                                          background: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#2b579a' : '#fff',
-                                          color: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#fff' : '#111',
-                                          border: '1px solid #ccc',
-                                          padding: '2px 6px',
-                                          fontSize: '9px',
-                                          cursor: 'pointer',
-                                          borderRadius: '2px',
-                                          fontWeight: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? 700 : 400,
-                                        }}
-                                        title="Move & reposition image inside frame (WordPress pan)"
-                                      >
-                                        ✋ Move
-                                      </button>
-                                    )}
-                                    {!isViewingSnapshot && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'primary', imageId: null, imageSrc: product.originalPhoto || product.photo })}
-                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                        title="Crop image directly on screen"
-                                      >
-                                        ✂️ Crop
-                                      </button>
-                                    )}
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleImageFit(`pri-${product.id}`)}
-                                      style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                      title="Toggle between Fill Frame (No Blank Space) and Fit Whole Image"
-                                    >
-                                      {(imageFitModes[`pri-${product.id}`] || 'cover') === 'cover' ? '🔲 Fill Frame' : '🖼 Fit'}
-                                    </button>
-                                    {!isViewingSnapshot && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleImageLock(product.id, 'primary')}
-                                        style={{
-                                          background: product.imageLocked ? '#111' : '#fff',
-                                          color: product.imageLocked ? '#fff' : '#111',
-                                          border: '1px solid #ccc',
-                                          padding: '2px 6px',
-                                          fontSize: '9px',
-                                          cursor: 'pointer',
-                                          borderRadius: '2px',
-                                        }}
-                                        title={product.imageLocked ? 'Locked' : 'Unlocked'}
-                                      >
-                                        {product.imageLocked ? '🔒' : '🔓'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Interactive Move Banner overlay when moving */}
-                                {repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' && (
-                                  <div
-                                    className="no-print"
-                                    style={{
-                                      position: 'absolute',
-                                      top: 0,
-                                      left: 0,
-                                      right: 0,
-                                      background: 'rgba(24, 24, 27, 0.95)',
-                                      color: '#ffffff',
-                                      padding: '5px 10px',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      zIndex: 35,
-                                      fontSize: '10px',
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Move:</span>
-                                      <span>Drag image to position</span>
-                                      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
-                                        <span>Zoom:</span>
-                                        <input
-                                          type="range"
-                                          min="1"
-                                          max="2.5"
-                                          step="0.05"
-                                          value={repositionState.zoom}
-                                          onChange={(e) => setRepositionState((prev) => ({ ...prev, zoom: parseFloat(e.target.value) }))}
-                                          style={{ width: '60px', accentColor: '#2b579a', cursor: 'pointer' }}
-                                        />
-                                        <span>{Math.round(repositionState.zoom * 100)}%</span>
-                                      </label>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
-                                        style={{ background: '#333', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', fontSize: '9px' }}
-                                      >
-                                        Center
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCommitMove(product.id, 'primary', null)}
-                                        style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '9px' }}
-                                      >
-                                        ✓ Done
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div
-                                  style={{
-                                    width: '100%',
-                                    height: '100%',
-                                    cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')
-                                      ? (repositionState.isDragging ? 'grabbing' : 'grab')
-                                      : 'default',
-                                  }}
-                                  onMouseDown={(e) => {
-                                    if (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') {
-                                      e.preventDefault();
-                                      setRepositionState((prev) => ({
-                                        ...prev,
-                                        isDragging: true,
-                                        startX: e.clientX,
-                                        startY: e.clientY,
-                                        initialPanX: prev.panX,
-                                        initialPanY: prev.panY,
-                                      }));
-                                    }
-                                  }}
-                                >
-                                  <AnnotationCanvas
-                                    imageSrc={product.photo}
-                                    annotations={product.annotations || []}
-                                    onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                                    activeTool={activeTool}
-                                    activeColor={activeColor}
-                                    activeStroke={activeStroke}
-                                    isLocked={product.imageLocked || (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')}
-                                    isReadOnly={isViewingSnapshot}
-                                    onApproveProduct={() => {
-                                      if (!isApproved) handleToggleApproval(product);
-                                    }}
-                                    fit={imageFitModes[`pri-${product.id}`] || 'cover'}
-                                    panX={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panX : (product.photoPan?.x ?? 50)}
-                                    panY={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panY : (product.photoPan?.y ?? 50)}
-                                    zoom={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.zoom : (product.photoZoom ?? 1)}
-                                  />
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          /* Image Grid: Primary Reference Image dominant + Additional Views Grid (Zero Blank Spaces) */
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
-                              gap: '10px',
-                              alignItems: 'stretch',
-                            }}
-                          >
-                            {/* Dominant Primary Reference Image Card */}
-                            <div
-                              style={{
-                                position: 'relative',
-                                border: '1.5px solid #111111',
-                                background: '#ffffff',
-                                height: isPortrait ? '270px' : '330px',
-                                boxSizing: 'border-box',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'primary' ? (
-                                <InlineImageCropper
-                                  imageSrc={inlineCropTarget.imageSrc}
-                                  onApply={handleApplyCrop}
-                                  onCancel={() => setInlineCropTarget(null)}
-                                  onReset={() => handleResetCrop(product.id, 'primary')}
-                                  hasOriginal={!!product.originalPhoto}
-                                />
-                              ) : (
-                                <>
-                                  <div
-                                    style={{
-                                      position: 'absolute',
-                                      top: '8px',
-                                      left: '8px',
-                                      right: '8px',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      zIndex: 20,
-                                      pointerEvents: 'none',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        background: '#e3f2fd',
-                                        border: '1px solid #90caf9',
-                                        padding: '3px 8px',
-                                        fontSize: '10px',
-                                        fontWeight: 800,
-                                        color: '#1565c0',
-                                        borderRadius: '2px',
-                                        letterSpacing: '0.04em',
-                                        pointerEvents: 'auto',
-                                      }}
-                                    >
-                                      Reference Image
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
-                                      {(product.originalPhoto || product.photoPan || (product.photoZoom && product.photoZoom !== 1)) && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleResetCrop(product.id, 'primary')}
-                                          style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                          title="Reset crop & positioning"
-                                        >
-                                          ↺ Reset
-                                        </button>
-                                      )}
-                                      {!isViewingSnapshot && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleStartMove(product.id, 'primary', null, product.photoPan, product.photoZoom)}
-                                          style={{
-                                            background: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#2b579a' : '#fff',
-                                            color: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? '#fff' : '#111',
-                                            border: '1px solid #ccc',
-                                            padding: '2px 5px',
-                                            fontSize: '9px',
-                                            cursor: 'pointer',
-                                            borderRadius: '2px',
-                                            fontWeight: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') ? 700 : 400,
-                                          }}
-                                          title="Move & reposition image"
-                                        >
-                                          ✋ Move
-                                        </button>
-                                      )}
-                                      {!isViewingSnapshot && (
-                                        <button
-                                          type="button"
-                                          onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'primary', imageId: null, imageSrc: product.originalPhoto || product.photo })}
-                                          style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                          title="Crop image on screen"
-                                        >
-                                          ✂️ Crop
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleImageFit(`pri-${product.id}`)}
-                                        style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-                                        title="Toggle between Fill Frame and Fit Image"
-                                      >
-                                        {(imageFitModes[`pri-${product.id}`] || 'cover') === 'cover' ? '🔲 Fill' : '🖼 Fit'}
-                                      </button>
-                                      {!isViewingSnapshot && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleToggleImageLock(product.id, 'primary')}
-                                          style={{
-                                            background: product.imageLocked ? '#111' : '#fff',
-                                            color: product.imageLocked ? '#fff' : '#111',
-                                            border: '1px solid #ccc',
-                                            padding: '2px 5px',
-                                            fontSize: '9px',
-                                            cursor: 'pointer',
-                                            borderRadius: '2px',
-                                          }}
-                                          title={product.imageLocked ? 'Locked' : 'Unlocked'}
-                                        >
-                                          {product.imageLocked ? '🔒' : '🔓'}
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' && (
-                                    <div
-                                      className="no-print"
-                                      style={{
-                                        position: 'absolute',
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        background: 'rgba(24, 24, 27, 0.95)',
-                                        color: '#ffffff',
-                                        padding: '5px 10px',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        zIndex: 35,
-                                        fontSize: '10px',
-                                      }}
-                                    >
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Move:</span>
-                                        <span>Drag image</span>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
-                                          <span>Zoom:</span>
-                                          <input
-                                            type="range"
-                                            min="1"
-                                            max="2.5"
-                                            step="0.05"
-                                            value={repositionState.zoom}
-                                            onChange={(e) => setRepositionState((prev) => ({ ...prev, zoom: parseFloat(e.target.value) }))}
-                                            style={{ width: '60px', accentColor: '#2b579a', cursor: 'pointer' }}
-                                          />
-                                          <span>{Math.round(repositionState.zoom * 100)}%</span>
-                                        </label>
-                                      </div>
-                                      <div style={{ display: 'flex', gap: '4px' }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
-                                          style={{ background: '#333', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '2px', cursor: 'pointer', fontSize: '9px' }}
-                                        >
-                                          Center
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleCommitMove(product.id, 'primary', null)}
-                                          style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '9px' }}
-                                        >
-                                          ✓ Done
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div
-                                    style={{
-                                      width: '100%',
-                                      height: '100%',
-                                      cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')
-                                        ? (repositionState.isDragging ? 'grabbing' : 'grab')
-                                        : 'default',
-                                    }}
-                                    onMouseDown={(e) => {
-                                      if (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary') {
-                                        e.preventDefault();
-                                        setRepositionState((prev) => ({
-                                          ...prev,
-                                          isDragging: true,
-                                          startX: e.clientX,
-                                          startY: e.clientY,
-                                          initialPanX: prev.panX,
-                                          initialPanY: prev.panY,
-                                        }));
-                                      }
-                                    }}
-                                  >
-                                    <AnnotationCanvas
-                                      imageSrc={product.photo}
-                                      annotations={product.annotations || []}
-                                      onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                                      activeTool={activeTool}
-                                      activeColor={activeColor}
-                                      activeStroke={activeStroke}
-                                      isLocked={product.imageLocked || (repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary')}
-                                      isReadOnly={isViewingSnapshot}
-                                      onApproveProduct={() => {
-                                        if (!isApproved) handleToggleApproval(product);
-                                      }}
-                                      fit={imageFitModes[`pri-${product.id}`] || 'cover'}
-                                      panX={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panX : (product.photoPan?.x ?? 50)}
-                                      panY={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.panY : (product.photoPan?.y ?? 50)}
-                                      zoom={repositionTarget?.productId === product.id && repositionTarget?.imageType === 'primary' ? repositionState.zoom : (product.photoZoom ?? 1)}
-                                    />
-                                  </div>
-                                </>
-                              )}
+                        {/* Additional Images Cells: 2-column balanced grid with Word-style 8-handle Crop */}
+                        {additionalImgs.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#333' }}>
+                              ADDITIONAL VIEWS ({additionalImgs.length} attached views):
                             </div>
-
-                            {/* Additional Images Cells: 2-column balanced grid to eliminate horizontal blank spaces */}
                             <div
                               style={{
                                 display: 'grid',
@@ -2128,248 +1782,54 @@ export default function ReviewSheet({
                               }}
                             >
                               {additionalImgs.slice(0, 4).map((img, addIdx) => (
-                                <div
+                                <WordStyleImageFrame
                                   key={img.id}
-                                  style={{
-                                    position: 'relative',
-                                    border: '1px solid #bbb',
-                                    background: '#ffffff',
-                                    height: additionalImgs.length === 1 ? (isPortrait ? '270px' : '330px') : (isPortrait ? '140px' : '158px'),
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    boxSizing: 'border-box',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  {inlineCropTarget && inlineCropTarget.productId === product.id && inlineCropTarget.imageType === 'additional' && inlineCropTarget.imageId === img.id ? (
-                                    <InlineImageCropper
-                                      imageSrc={inlineCropTarget.imageSrc}
-                                      onApply={handleApplyCrop}
-                                      onCancel={() => setInlineCropTarget(null)}
-                                      onReset={() => handleResetCrop(product.id, 'additional', img.id)}
-                                      hasOriginal={!!img.originalUrl}
-                                    />
-                                  ) : (
-                                    <>
-                                      <div
-                                        style={{
-                                          padding: '4px 6px',
-                                          background: '#f1f3f5',
-                                          borderBottom: '1px solid #ddd',
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          fontSize: '9px',
-                                          fontWeight: 700,
-                                          color: '#333',
-                                          zIndex: 10,
-                                        }}
-                                      >
-                                        <span>{img.label || `Picture - ${addIdx + 2}`}</span>
-                                        <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }} className="no-print">
-                                          {!img.locked && !isViewingSnapshot && (
-                                            <>
-                                              {addIdx > 0 && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
-                                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                                  title="Move view earlier"
-                                                >
-                                                  ◀
-                                                </button>
-                                              )}
-                                              {addIdx < additionalImgs.length - 1 && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
-                                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                                  title="Move view later"
-                                                >
-                                                  ▶
-                                                </button>
-                                              )}
-                                            </>
-                                          )}
-                                          {(img.originalUrl || img.pan || (img.zoom && img.zoom !== 1)) && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleResetCrop(product.id, 'additional', img.id)}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                              title="Reset crop & positioning"
-                                            >
-                                              ↺
-                                            </button>
-                                          )}
-                                          {!isViewingSnapshot && !img.locked && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleStartMove(product.id, 'additional', img.id, img.pan, img.zoom)}
-                                              style={{
-                                                background: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) ? '#2b579a' : 'none',
-                                                color: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) ? '#fff' : 'inherit',
-                                                border: 'none',
-                                                cursor: 'pointer',
-                                                fontSize: '9px',
-                                                padding: '1px 3px',
-                                                borderRadius: '2px',
-                                              }}
-                                              title="Move image position"
-                                            >
-                                              ✋
-                                            </button>
-                                          )}
-                                          {!isViewingSnapshot && !img.locked && (
-                                            <button
-                                              type="button"
-                                              onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                              title="Crop image directly on screen"
-                                            >
-                                              ✂️
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleImageFit(`add-${img.id}`)}
-                                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                            title="Toggle Fill Frame (No Blank Space) or Fit Image"
-                                          >
-                                            {(imageFitModes[`add-${img.id}`] || 'cover') === 'cover' ? '🔲' : '🖼'}
-                                          </button>
-                                          {!isViewingSnapshot && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                              title={img.locked ? 'Locked' : 'Unlocked'}
-                                            >
-                                              {img.locked ? '🔒' : '🔓'}
-                                            </button>
-                                          )}
-                                          {!isViewingSnapshot && !img.locked && (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                              style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
-                                              title="Remove view"
-                                            >
-                                              ✕
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Interactive Move overlay for additional image */}
-                                      {repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id && (
-                                        <div
-                                          className="no-print"
-                                          style={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            right: 0,
-                                            background: 'rgba(24, 24, 27, 0.95)',
-                                            color: '#ffffff',
-                                            padding: '3px 6px',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            zIndex: 35,
-                                            fontSize: '9px',
-                                          }}
-                                        >
-                                          <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Drag to position</span>
-                                          <div style={{ display: 'flex', gap: '3px' }}>
-                                            <button
-                                              type="button"
-                                              onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
-                                              style={{ background: '#333', color: '#fff', border: 'none', padding: '1px 4px', borderRadius: '2px', cursor: 'pointer', fontSize: '8px' }}
-                                            >
-                                              Center
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => handleCommitMove(product.id, 'additional', img.id)}
-                                              style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '1px 6px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '8px' }}
-                                            >
-                                              ✓ Done
-                                            </button>
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      <div
-                                        style={{
-                                          flex: 1,
-                                          position: 'relative',
-                                          overflow: 'hidden',
-                                          background: '#fafafa',
-                                          cursor: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id)
-                                            ? (repositionState.isDragging ? 'grabbing' : 'grab')
-                                            : 'default',
-                                        }}
-                                        onMouseDown={(e) => {
-                                          if (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id) {
-                                            e.preventDefault();
-                                            setRepositionState((prev) => ({
-                                              ...prev,
-                                              isDragging: true,
-                                              startX: e.clientX,
-                                              startY: e.clientY,
-                                              initialPanX: prev.panX,
-                                              initialPanY: prev.panY,
-                                            }));
-                                          }
-                                        }}
-                                      >
-                                        <img
-                                          src={img.url}
-                                          alt={img.label}
-                                          style={{
-                                            width: '100%',
-                                            height: '100%',
-                                            objectFit: imageFitModes[`add-${img.id}`] || 'cover',
-                                            objectPosition: `${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.panX : (img.pan?.x ?? 50)}% ${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.panY : (img.pan?.y ?? 50)}%`,
-                                            transform: (repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.zoom : (img.zoom ?? 1)) !== 1
-                                              ? `scale(${repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id ? repositionState.zoom : (img.zoom ?? 1)})`
-                                              : 'none',
-                                            display: 'block',
-                                            pointerEvents: 'none',
-                                          }}
-                                        />
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
+                                  imageSrc={img.url}
+                                  originalSrc={img.originalUrl}
+                                  label={img.label || `Picture - ${addIdx + 2}`}
+                                  panX={img.pan?.x ?? 50}
+                                  panY={img.pan?.y ?? 50}
+                                  zoom={img.zoom ?? 1}
+                                  fit={imageFitModes[`add-${img.id}`] || 'cover'}
+                                  isLocked={img.locked}
+                                  readOnly={isViewingSnapshot}
+                                  height={additionalImgs.length === 1 ? (isPortrait ? '270px' : '330px') : (isPortrait ? '140px' : '158px')}
+                                  onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
+                                  onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
+                                  onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
+                                  onToggleLock={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                  onRemove={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                  onMoveEarlier={addIdx > 0 ? () => handleReorderAdditionalImage(product.id, img.id, 'prev') : null}
+                                  onMoveLater={addIdx < additionalImgs.length - 1 ? () => handleReorderAdditionalImage(product.id, img.id, 'next') : null}
+                                />
                               ))}
                             </div>
                           </div>
                         )}
-
-                        {/* Upload New Additional Image control (Hidden in print) */}
-                        {!isViewingSnapshot && (
-                          <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
-                            <label
-                              style={{
-                                fontSize: '10px',
-                                color: '#2b579a',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                textDecoration: 'underline',
-                              }}
-                            >
-                              + Upload Additional Image (Picture - {additionalImgs.length + 2})
-                              <input
-                                type="file"
-                                accept="image/*"
-                                style={{ display: 'none' }}
-                                onChange={(e) => handleAddAdditionalImage(product.id, e)}
-                              />
-                            </label>
-                          </div>
-                        )}
                       </div>
+
+                      {/* Upload New Additional Image control (Hidden in print) */}
+                      {!isViewingSnapshot && (
+                        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
+                          <label
+                            style={{
+                              fontSize: '10px',
+                              color: '#2b579a',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            + Upload Additional Image (Picture - {additionalImgs.length + 2})
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              onChange={(e) => handleAddAdditionalImage(product.id, e)}
+                            />
+                          </label>
+                        </div>
+                      )}
 
                       {/* Selected Materials Table (Exact Reference Image 1 Layout) */}
                       <div>
@@ -2627,224 +2087,27 @@ export default function ReviewSheet({
                 >
                   {additionalImgs.slice(4).map((img, addIdx) => {
                     const trueIdx = addIdx + 4;
-                    const isInlineCroppingThis = inlineCropTarget?.productId === product.id && inlineCropTarget?.imageId === img.id;
-                    const isRepositioningThis = repositionTarget?.productId === product.id && repositionTarget?.imageId === img.id;
-
                     return (
-                      <div
+                      <WordStyleImageFrame
                         key={img.id}
-                        style={{
-                          position: 'relative',
-                          border: '1px solid #bbb',
-                          background: '#ffffff',
-                          height: isPortrait ? '260px' : '280px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          boxSizing: 'border-box',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {isInlineCroppingThis ? (
-                          <InlineImageCropper
-                            imageSrc={inlineCropTarget.imageSrc}
-                            onApply={handleApplyCrop}
-                            onCancel={() => setInlineCropTarget(null)}
-                            onReset={() => handleResetCrop(product.id, 'additional', img.id)}
-                            hasOriginal={!!img.originalUrl}
-                          />
-                        ) : (
-                          <>
-                            <div
-                              style={{
-                                padding: '4px 8px',
-                                background: '#f1f3f5',
-                                borderBottom: '1px solid #ddd',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontSize: '10px',
-                                fontWeight: 700,
-                                color: '#333',
-                                zIndex: 10,
-                              }}
-                            >
-                              <span>{img.label || `Picture - ${trueIdx + 2}`}</span>
-                              <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }} className="no-print">
-                                {!img.locked && !isViewingSnapshot && (
-                                  <>
-                                    {trueIdx > 0 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                        title="Move view earlier"
-                                      >
-                                        ◀
-                                      </button>
-                                    )}
-                                    {trueIdx < additionalImgs.length - 1 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                        title="Move view later"
-                                      >
-                                        ▶
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                                {(img.originalUrl || img.pan || (img.zoom && img.zoom !== 1)) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleResetCrop(product.id, 'additional', img.id)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                    title="Reset crop & positioning"
-                                  >
-                                    ↺
-                                  </button>
-                                )}
-                                {!isViewingSnapshot && !img.locked && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleStartMove(product.id, 'additional', img.id, img.pan, img.zoom)}
-                                    style={{
-                                      background: isRepositioningThis ? '#2b579a' : 'none',
-                                      color: isRepositioningThis ? '#fff' : 'inherit',
-                                      border: 'none',
-                                      cursor: 'pointer',
-                                      fontSize: '9px',
-                                      padding: '1px 3px',
-                                      borderRadius: '2px',
-                                    }}
-                                    title="Move image position"
-                                  >
-                                    ✋
-                                  </button>
-                                )}
-                                {!isViewingSnapshot && !img.locked && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setInlineCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                    title="Crop image directly on screen"
-                                  >
-                                    ✂️
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleImageFit(`add-${img.id}`)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                  title="Toggle Fill Frame (No Blank Space) or Fit Image"
-                                >
-                                  {(imageFitModes[`add-${img.id}`] || 'cover') === 'cover' ? '🔲' : '🖼'}
-                                </button>
-                                {!isViewingSnapshot && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
-                                    title={img.locked ? 'Locked' : 'Unlocked'}
-                                  >
-                                    {img.locked ? '🔒' : '🔓'}
-                                  </button>
-                                )}
-                                {!isViewingSnapshot && !img.locked && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                    style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
-                                    title="Remove view"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Interactive Move overlay for additional image */}
-                            {isRepositioningThis && (
-                              <div
-                                className="no-print"
-                                style={{
-                                  position: 'absolute',
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  background: 'rgba(24, 24, 27, 0.95)',
-                                  color: '#ffffff',
-                                  padding: '3px 6px',
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  zIndex: 35,
-                                  fontSize: '9px',
-                                }}
-                              >
-                                <span style={{ fontWeight: 700, color: '#ffcc00' }}>✋ Drag to position</span>
-                                <div style={{ display: 'flex', gap: '3px' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => setRepositionState((prev) => ({ ...prev, panX: 50, panY: 50, zoom: 1 }))}
-                                    style={{ background: '#333', color: '#fff', border: 'none', padding: '1px 4px', borderRadius: '2px', cursor: 'pointer', fontSize: '8px' }}
-                                  >
-                                    Center
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCommitMove(product.id, 'additional', img.id)}
-                                    style={{ background: '#27ae60', color: '#fff', border: 'none', padding: '1px 6px', borderRadius: '2px', cursor: 'pointer', fontWeight: 700, fontSize: '8px' }}
-                                  >
-                                    ✓ Done
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            <div
-                              style={{
-                                flex: 1,
-                                position: 'relative',
-                                overflow: 'hidden',
-                                background: '#fafafa',
-                                cursor: isRepositioningThis
-                                  ? (repositionState.isDragging ? 'grabbing' : 'grab')
-                                  : 'default',
-                              }}
-                              onMouseDown={(e) => {
-                                if (isRepositioningThis) {
-                                  e.preventDefault();
-                                  setRepositionState((prev) => ({
-                                    ...prev,
-                                    isDragging: true,
-                                    startX: e.clientX,
-                                    startY: e.clientY,
-                                    initialPanX: prev.panX,
-                                    initialPanY: prev.panY,
-                                  }));
-                                }
-                              }}
-                            >
-                              <img
-                                src={img.url}
-                                alt={img.label}
-                                style={{
-                                  width: '100%',
-                                  height: '100%',
-                                  objectFit: imageFitModes[`add-${img.id}`] || 'cover',
-                                  objectPosition: `${isRepositioningThis ? repositionState.panX : (img.pan?.x ?? 50)}% ${isRepositioningThis ? repositionState.panY : (img.pan?.y ?? 50)}%`,
-                                  transform: (isRepositioningThis ? repositionState.zoom : (img.zoom ?? 1)) !== 1
-                                    ? `scale(${isRepositioningThis ? repositionState.zoom : (img.zoom ?? 1)})`
-                                    : 'none',
-                                  display: 'block',
-                                  pointerEvents: 'none',
-                                }}
-                              />
-                            </div>
-                          </>
-                        )}
-                      </div>
+                        imageSrc={img.url}
+                        originalSrc={img.originalUrl}
+                        label={img.label || `Picture - ${trueIdx + 2}`}
+                        panX={img.pan?.x ?? 50}
+                        panY={img.pan?.y ?? 50}
+                        zoom={img.zoom ?? 1}
+                        fit={imageFitModes[`add-${img.id}`] || 'cover'}
+                        isLocked={img.locked}
+                        readOnly={isViewingSnapshot}
+                        height={isPortrait ? '260px' : '280px'}
+                        onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
+                        onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
+                        onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
+                        onToggleLock={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                        onRemove={() => handleRemoveAdditionalImage(product.id, img.id)}
+                        onMoveEarlier={trueIdx > 0 ? () => handleReorderAdditionalImage(product.id, img.id, 'prev') : null}
+                        onMoveLater={trueIdx < additionalImgs.length - 1 ? () => handleReorderAdditionalImage(product.id, img.id, 'next') : null}
+                      />
                     );
                   })}
                 </div>

@@ -368,76 +368,82 @@ function drawAnnotationOnCanvas(ctx, ann, W, H) {
 }
 
 /**
- * Render product image + annotations to a PNG Data URL
+ * Render product image + annotations to a PNG Data URL with tight aspect ratio (Zero Blank Spaces)
  */
-export async function renderProductCanvasToImage(product, targetWidth = 1000, targetHeight = 650) {
+export async function renderProductCanvasToImage(product, maxWidth = 1000, maxHeight = 680) {
   return new Promise((resolve) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = targetWidth;
-    canvas.height = targetHeight;
-    const ctx = canvas.getContext('2d');
-
-    // Solid white background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, targetWidth, targetHeight);
-
-    const finishAnnotations = () => {
-      const annotations = product.annotations || [];
-      annotations.forEach((ann) => {
-        drawAnnotationOnCanvas(ctx, ann, targetWidth, targetHeight);
-      });
-      resolve(canvas.toDataURL('image/png'));
-    };
-
-    if (product.photo) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        // Aspect-fit image onto canvas
-        const imgAspect = img.width / img.height;
-        const canvasAspect = targetWidth / targetHeight;
-        let drawW = targetWidth;
-        let drawH = targetHeight;
-        let offsetX = 0;
-        let offsetY = 0;
-
-        if (imgAspect > canvasAspect) {
-          drawW = targetWidth;
-          drawH = targetWidth / imgAspect;
-          offsetY = (targetHeight - drawH) / 2;
-        } else {
-          drawH = targetHeight;
-          drawW = targetHeight * imgAspect;
-          offsetX = (targetWidth - drawW) / 2;
-        }
-
-        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-        finishAnnotations();
-      };
-      img.onerror = () => {
-        // Fallback placeholder box
-        ctx.fillStyle = '#f8f9fa';
-        ctx.fillRect(0, 0, targetWidth, targetHeight);
-        ctx.strokeStyle = '#cccccc';
-        ctx.strokeRect(10, 10, targetWidth - 20, targetHeight - 20);
-        ctx.fillStyle = '#777777';
-        ctx.font = '14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Reference Image Preview', targetWidth / 2, targetHeight / 2);
-        finishAnnotations();
-      };
-      img.src = product.photo;
-    } else {
+    if (!product.photo) {
+      const canvas = document.createElement('canvas');
+      canvas.width = maxWidth;
+      canvas.height = maxHeight;
+      const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#f8f9fa';
-      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.fillRect(0, 0, maxWidth, maxHeight);
       ctx.strokeStyle = '#cccccc';
-      ctx.strokeRect(10, 10, targetWidth - 20, targetHeight - 20);
+      ctx.strokeRect(10, 10, maxWidth - 20, maxHeight - 20);
       ctx.fillStyle = '#777777';
       ctx.font = '14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('No Reference Image Attached', targetWidth / 2, targetHeight / 2);
-      finishAnnotations();
+      ctx.fillText('No Reference Image Attached', maxWidth / 2, maxHeight / 2);
+      resolve({ dataUrl: canvas.toDataURL('image/png'), wordWidth: 440, wordHeight: 285 });
+      return;
     }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const natW = img.naturalWidth || img.width || 800;
+      const natH = img.naturalHeight || img.height || 600;
+      const imgAspect = natW / natH;
+
+      // Fit canvas tightly to image aspect ratio (zero empty letterboxing bands)
+      let canvasW = maxWidth;
+      let canvasH = Math.round(canvasW / imgAspect);
+      if (canvasH > maxHeight) {
+        canvasH = maxHeight;
+        canvasW = Math.round(canvasH * imgAspect);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      const ctx = canvas.getContext('2d');
+
+      // Draw image filling 100% of the canvas with no empty side margins
+      ctx.drawImage(img, 0, 0, canvasW, canvasH);
+
+      // Draw annotations on top
+      const annotations = product.annotations || [];
+      annotations.forEach((ann) => {
+        drawAnnotationOnCanvas(ctx, ann, canvasW, canvasH);
+      });
+
+      // Compute Word display dimensions preserving exact aspect ratio
+      let wordW = 440;
+      let wordH = Math.round(wordW / imgAspect);
+      if (wordH > 320) {
+        wordH = 320;
+        wordW = Math.round(wordH * imgAspect);
+      }
+
+      resolve({
+        dataUrl: canvas.toDataURL('image/png'),
+        wordWidth: wordW,
+        wordHeight: wordH,
+      });
+    };
+
+    img.onerror = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = maxWidth;
+      canvas.height = maxHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#f8f9fa';
+      ctx.fillRect(0, 0, maxWidth, maxHeight);
+      resolve({ dataUrl: canvas.toDataURL('image/png'), wordWidth: 440, wordHeight: 285 });
+    };
+
+    img.src = product.photo;
   });
 }
 
@@ -922,9 +928,11 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
     const isApproved = product.approvalStatus === 'Approved';
     const pid = product.productId || (isApproved ? `PID-${doc.series}-${String(itemNum).padStart(2, '0')}` : 'PENDING');
 
-    // 1. Render annotated preview image for this product
-    const canvasPngDataUrl = await renderProductCanvasToImage(product, 1100, 720);
-    const canvasBytes = base64ToUint8Array(canvasPngDataUrl);
+    // 1. Render annotated preview image for this product (tight aspect ratio, zero blank space)
+    const canvasRes = await renderProductCanvasToImage(product, isPortrait ? 900 : 800, isPortrait ? 600 : 540);
+    const canvasBytes = base64ToUint8Array(canvasRes.dataUrl || canvasRes);
+    const imgWidth = canvasRes.wordWidth || (isPortrait ? 520 : 440);
+    const imgHeight = canvasRes.wordHeight || (isPortrait ? 330 : 285);
 
     // 2. Build 2-column Word table for Landscape (or stacked for Portrait)
     const leftChildren = [
@@ -944,8 +952,8 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
           new ImageRun({
             data: canvasBytes,
             transformation: {
-              width: isPortrait ? 520 : 440,
-              height: isPortrait ? 330 : 285,
+              width: imgWidth,
+              height: imgHeight,
             },
           }),
         ],
