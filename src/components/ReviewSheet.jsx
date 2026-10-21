@@ -1744,19 +1744,8 @@ export default function ReviewSheet({
                         minWidth: 0,
                       }}
                     >
-                      {/* Primary Reference Image Workspace & Additional Images Grid */}
-                      <div
-                        style={additionalImgs.length > 0 ? {
-                          display: 'grid',
-                          gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
-                          gap: '10px',
-                          alignItems: 'stretch',
-                        } : {
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '8px',
-                        }}
-                      >
+                      {/* Primary Reference Image Workspace & Additional Images in the Main Reference Column */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                         {/* Dominant Primary Reference Image Card with Word-Style 8-handle Crop & Move */}
                         <WordStyleImageFrame
                           imageSrc={product.photo}
@@ -1772,7 +1761,7 @@ export default function ReviewSheet({
                           isLocked={product.imageLocked}
                           readOnly={isViewingSnapshot}
                           activeTool={activeTool}
-                          height={additionalImgs.length === 0 ? (isPortrait ? '340px' : '360px') : (isPortrait ? '270px' : '330px')}
+                          height={isPortrait ? '340px' : '360px'}
                           onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'primary', null, data)}
                           onResetOriginal={() => handleResetCrop(product.id, 'primary')}
                           onToggleFit={() => handleToggleImageFit(`pri-${product.id}`)}
@@ -1797,17 +1786,22 @@ export default function ReviewSheet({
                           />
                         </WordStyleImageFrame>
 
-                        {/* Additional Images Cells: 2-column balanced grid with Word-style 8-handle Crop */}
+                        {/* Additional Images Cells: Included directly in the main column under Picture 1 */}
                         {additionalImgs.length > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: '#333' }}>
-                              ADDITIONAL VIEWS ({additionalImgs.length} attached views):
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#333' }}>
+                                ADDITIONAL VIEWS ({additionalImgs.length} attached views):
+                              </div>
+                              <div style={{ fontSize: '10px', color: '#666' }}>
+                                Click photo to crop, resize or move
+                              </div>
                             </div>
                             <div
                               style={{
                                 display: 'grid',
-                                gridTemplateColumns: additionalImgs.length >= 2 ? 'repeat(2, 1fr)' : '1fr',
-                                gap: '8px',
+                                gridTemplateColumns: additionalImgs.length === 1 ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
+                                gap: '10px',
                                 alignContent: 'start',
                               }}
                             >
@@ -1826,7 +1820,7 @@ export default function ReviewSheet({
                                   fit={imageFitModes[`add-${img.id}`] || 'cover'}
                                   isLocked={img.locked}
                                   readOnly={isViewingSnapshot}
-                                  height={additionalImgs.length === 1 ? (isPortrait ? '270px' : '330px') : (isPortrait ? '140px' : '158px')}
+                                  height="220px"
                                   onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
                                   onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
                                   onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
