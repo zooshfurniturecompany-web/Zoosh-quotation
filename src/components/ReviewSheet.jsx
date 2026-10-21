@@ -11,6 +11,7 @@ import ReviewHistoryModal from './ReviewHistoryModal';
 import ReviewSyncModal from './ReviewSyncModal';
 import ReviewToolbar, { TOOLS } from './ReviewToolbar';
 import AnnotationCanvas from './AnnotationCanvas';
+import CropModal from './CropModal';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
@@ -41,6 +42,7 @@ export default function ReviewSheet({
   const [syncTargetQuote, setSyncTargetQuote] = useState(null);
   const [syncDiff, setSyncDiff] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [cropTarget, setCropTarget] = useState(null); // { productId, imageType: 'primary' | 'additional', imageId, imageSrc }
 
   // Load Review Document on mount or when initialSeries / initialQuote changes
   useEffect(() => {
@@ -489,8 +491,10 @@ export default function ReviewSheet({
         const newImg = {
           id: `img-${Date.now()}`,
           url: reader.result,
+          originalUrl: null,
           label: `Picture - ${nextPicNum}`,
           caption: 'Production detail view',
+          locked: false,
         };
         handleProductUpdate(productId, {
           additionalImages: [...(prod.additionalImages || []), newImg],
@@ -499,6 +503,91 @@ export default function ReviewSheet({
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleApplyCrop = (croppedDataUrl) => {
+    if (!cropTarget) return;
+    const { productId, imageType, imageId } = cropTarget;
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    if (imageType === 'primary') {
+      handleProductUpdate(productId, {
+        photo: croppedDataUrl,
+        originalPhoto: prod.originalPhoto || prod.photo,
+      });
+      addToast('Applied crop to Reference Image', 'success');
+    } else if (imageType === 'additional') {
+      const updatedAddImgs = (prod.additionalImages || []).map((img) => {
+        if (img.id === imageId) {
+          return {
+            ...img,
+            url: croppedDataUrl,
+            originalUrl: img.originalUrl || img.url,
+          };
+        }
+        return img;
+      });
+      handleProductUpdate(productId, { additionalImages: updatedAddImgs });
+      addToast('Applied crop to additional image', 'success');
+    }
+    setCropTarget(null);
+  };
+
+  const handleResetCrop = (productId, imageType, imageId) => {
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    if (imageType === 'primary' && prod.originalPhoto) {
+      handleProductUpdate(productId, {
+        photo: prod.originalPhoto,
+        originalPhoto: null,
+      });
+      addToast('Restored original crop for Reference Image', 'success');
+    } else if (imageType === 'additional') {
+      const updatedAddImgs = (prod.additionalImages || []).map((img) => {
+        if (img.id === imageId && img.originalUrl) {
+          return {
+            ...img,
+            url: img.originalUrl,
+            originalUrl: null,
+          };
+        }
+        return img;
+      });
+      handleProductUpdate(productId, { additionalImages: updatedAddImgs });
+      addToast('Restored original crop for additional image', 'success');
+    }
+  };
+
+  const handleToggleImageLock = (productId, imageType, imageId) => {
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+
+    if (imageType === 'primary') {
+      handleProductUpdate(productId, { imageLocked: !prod.imageLocked });
+    } else {
+      const updated = (prod.additionalImages || []).map((img) => {
+        if (img.id === imageId) {
+          return { ...img, locked: !img.locked };
+        }
+        return img;
+      });
+      handleProductUpdate(productId, { additionalImages: updated });
+    }
+  };
+
+  const handleRemoveAdditionalImage = (productId, imageId) => {
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+    const remaining = (prod.additionalImages || []).filter((img) => img.id !== imageId);
+    const renumbered = remaining.map((img, idx) => ({
+      ...img,
+      label: `Picture - ${idx + 2}`,
+    }));
+    handleProductUpdate(productId, { additionalImages: renumbered });
+    addToast('Removed view and renumbered remaining images', 'info');
   };
 
   if (loading) {
@@ -932,8 +1021,9 @@ export default function ReviewSheet({
             PAGE 2..N: INDIVIDUAL PRODUCT PAGES (Strictly One Product Per A4 Page)
         ======================================================================= */}
         {products.map((product, pIdx) => {
-          const pageNum = pIdx + 2;
           const isApproved = product.approvalStatus === 'Approved';
+          const pid = product.productId || (isApproved ? `PID-${doc.series}-${String(pIdx + 1).padStart(2, '0')}` : null);
+          const additionalImgs = product.additionalImages || [];
 
           return (
             <div
@@ -946,654 +1036,714 @@ export default function ReviewSheet({
                 boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
                 border: '1px solid #d1d5db',
                 borderRadius: '2px',
-                padding: '36px 44px',
+                padding: '24px 32px',
                 boxSizing: 'border-box',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between',
+                gap: '14px',
                 position: 'relative',
                 pageBreakAfter: 'always',
               }}
             >
-              <div>
-                {/* Product Page Fixed Running Header */}
-                <div
-                  style={{
-                    borderBottom: '1.5px solid #111',
-                    paddingBottom: '10px',
-                    marginBottom: '16px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    fontSize: '10px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    color: 'var(--gray)',
-                  }}
-                >
-                  <span>ZOOSH CUSTOM FURNITURE &bull; PRODUCT REVIEW SHEET</span>
-                  <span>QTN-{doc.series} / REVIEW SHEET NO.: {displaySheetNo}</span>
+              {/* Top Compact Product Information Box (Exact Reference Image 2 Layout) */}
+              <div
+                style={{
+                  border: '1.5px solid #111111',
+                  padding: '10px 16px',
+                  background: '#ffffff',
+                  display: 'grid',
+                  gridTemplateColumns: '1.3fr 1.2fr 1.1fr',
+                  gap: '12px',
+                  alignItems: 'center',
+                  fontSize: '11px',
+                  lineHeight: 1.5,
+                }}
+              >
+                {/* Col 1: Sl. No. & ITEM */}
+                <div>
+                  <div><strong>Sl. No. :</strong> {pIdx + 1}</div>
+                  <div style={{ marginTop: '2px' }}>
+                    <strong>ITEM :</strong> <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{product.name}</span>
+                  </div>
                 </div>
 
-                {/* Top Product Information Box (Exact Reference Image 2 Layout) */}
-                <div
-                  style={{
-                    border: '1.5px solid #111111',
-                    padding: '12px 18px',
-                    marginBottom: '16px',
-                    background: '#ffffff',
-                    display: 'grid',
-                    gridTemplateColumns: '1.2fr 1.2fr 1.1fr',
-                    gap: '12px',
-                    alignItems: 'center',
-                    fontSize: '11px',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {/* Col 1: Sl. No. & ITEM */}
+                {/* Col 2: PRODUCT ID & QUANTITY */}
+                <div>
                   <div>
-                    <div><strong>Sl. No. :</strong> {pIdx + 1}</div>
-                    <div style={{ marginTop: '2px' }}>
-                      <strong>ITEM :</strong> <span style={{ textTransform: 'uppercase', fontWeight: 600 }}>{product.name}</span>
-                    </div>
+                    <strong>PRODUCT ID :</strong>{' '}
+                    {isApproved ? (
+                      <span style={{ color: '#27ae60', fontWeight: 700 }}>
+                        {pid}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#d97706', fontWeight: 600 }}>
+                        PENDING APPROVAL
+                      </span>
+                    )}
                   </div>
-
-                  {/* Col 2: PRODUCT ID & QUANTITY */}
-                  <div>
-                    <div>
-                      <strong>PRODUCT ID :</strong>{' '}
-                      {isApproved ? (
-                        <span style={{ color: '#27ae60', fontWeight: 700 }}>
-                          {product.productId || `PID-${doc.series}-${String(pIdx + 1).padStart(2, '0')}`}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#d97706', fontWeight: 600 }}>
-                          PENDING APPROVAL
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ marginTop: '2px' }}>
-                      <strong>QUANTITY :</strong> {product.qty} {product.utype || 'nos'}
-                    </div>
+                  <div style={{ marginTop: '2px' }}>
+                    <strong>QUANTITY :</strong> {product.qty} {product.utype || 'nos'}
                   </div>
+                </div>
 
-                  {/* Col 3: Revision, Last Edited & Approval Actions */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                      <div><strong>Revision :</strong> {product.revision || '01'}</div>
-                      <div style={{ color: '#555' }}><strong>Last Edited:</strong> {new Date().toLocaleDateString('en-GB')}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
-                      {!isViewingSnapshot && (
-                        <button
-                          type="button"
-                          className="no-print del-btn"
-                          onClick={() => handleToggleApproval(product)}
-                          style={{
-                            borderColor: isApproved ? '#ff5555' : '#28a745',
-                            color: isApproved ? '#ff5555' : '#28a745',
-                            fontSize: '10px',
-                            padding: '2px 8px',
-                          }}
-                        >
-                          {isApproved ? 'Revoke Approval' : '✓ Approve'}
-                        </button>
-                      )}
+                {/* Col 3: Product Revision & Action Controls */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <div><strong>Product Rev :</strong> <span style={{ fontWeight: 700 }}>{product.productRevision || '00'}</span></div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                    {!isViewingSnapshot && (
                       <button
                         type="button"
-                        className="no-print"
-                        onClick={() => handleExportSingleProductWord(product, pIdx)}
-                        disabled={exportingWord}
+                        className="no-print del-btn"
+                        onClick={() => handleToggleApproval(product)}
                         style={{
-                          background: '#107c41',
-                          color: '#ffffff',
-                          border: 'none',
+                          borderColor: isApproved ? '#ff5555' : '#28a745',
+                          color: isApproved ? '#ff5555' : '#28a745',
                           fontSize: '10px',
-                          fontWeight: 600,
-                          padding: '3px 8px',
-                          borderRadius: '2px',
-                          cursor: exportingWord ? 'wait' : 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
+                          padding: '2px 8px',
                         }}
-                        title={`Download editable Microsoft Word document (.docx) for ${product.name}`}
                       >
-                        <span>📥</span>
-                        <span>Word (.docx)</span>
+                        {isApproved ? 'Revoke Approval' : '✓ Approve'}
                       </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Main Product Layout: Left Workspace + Right Client Remarks Column (Exact Reference Image 2) */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: isPortrait ? '1fr' : '1fr 240px',
-                    gap: '20px',
-                    alignItems: 'stretch',
-                  }}
-                >
-                  {/* =========================================================
-                      LEFT SECTION: Primary Image Workspace, Fabric Table, Technical Specs
-                  ========================================================= */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                    {/* Primary Image Workspace with Reference Image Badge */}
-                    <div style={{ position: 'relative' }}>
-                      {/* Reference Image Badge (from Reference Image 2) */}
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: '10px',
-                          left: '10px',
-                          background: '#e3f2fd',
-                          border: '1px solid #90caf9',
-                          padding: '3px 8px',
-                          fontSize: '10px',
-                          fontWeight: 700,
-                          color: '#1565c0',
-                          zIndex: 20,
-                          borderRadius: '2px',
-                          letterSpacing: '0.02em',
-                        }}
-                      >
-                        Reference Image
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
-                        {!isViewingSnapshot && (
-                          <button
-                            type="button"
-                            className="no-print"
-                            onClick={() => handleProductUpdate(product.id, { imageLocked: !product.imageLocked })}
-                            style={{
-                              background: product.imageLocked ? '#111' : '#fff',
-                              color: product.imageLocked ? '#fff' : '#111',
-                              border: '1px solid #ccc',
-                              fontSize: '10px',
-                              padding: '2px 8px',
-                              borderRadius: '2px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {product.imageLocked ? '🔒 Position Locked' : '🔓 Lock Position'}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Active Interactive Annotation Canvas with All 9 Tools */}
-                      <div style={{ height: isPortrait ? '340px' : '380px', width: '100%' }}>
-                        <AnnotationCanvas
-                          imageSrc={product.photo}
-                          annotations={product.annotations || []}
-                          onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                          activeTool={activeTool}
-                          activeColor={activeColor}
-                          activeStroke={activeStroke}
-                          isLocked={product.imageLocked}
-                          isReadOnly={isViewingSnapshot}
-                          onApproveProduct={() => {
-                            if (!isApproved) handleToggleApproval(product);
-                          }}
-                        />
-                      </div>
-
-                      {/* Additional Views (Picture - 2, Picture - 3...) */}
-                      {product.additionalImages && product.additionalImages.length > 0 && (
-                        <div style={{ marginTop: '10px' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray)' }}>
-                            Additional Views:
-                          </span>
-                          <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-                            {product.additionalImages.map((img) => (
-                              <div key={img.id} style={{ textAlign: 'center' }}>
-                                <img
-                                  src={img.url}
-                                  alt={img.label}
-                                  style={{
-                                    width: '64px',
-                                    height: '64px',
-                                    objectFit: 'cover',
-                                    border: '1px solid #ccc',
-                                    borderRadius: '2px',
-                                  }}
-                                />
-                                <div style={{ fontSize: '9px', fontWeight: 600, color: '#555', marginTop: '2px' }}>
-                                  {img.label || 'Picture'}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {!isViewingSnapshot && (
-                        <div className="no-print" style={{ marginTop: '6px' }}>
-                          <label
-                            style={{
-                              fontSize: '10px',
-                              color: '#2b579a',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                            }}
-                          >
-                            + Upload Additional Image (Picture - {(product.additionalImages?.length || 0) + 2})
-                            <input
-                              type="file"
-                              accept="image/*"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleAddAdditionalImage(product.id, e)}
-                            />
-                          </label>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Selected Fabric Details Table (Exact Reference Image 1 Layout) */}
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          Selected Fabric Details
-                        </span>
-                        {!isViewingSnapshot && (
-                          <button
-                            type="button"
-                            className="no-print del-btn"
-                            onClick={() => handleAddFabricRow(product.id)}
-                            style={{ fontSize: '10px', padding: '2px 8px' }}
-                          >
-                            + Add Fabric Row
-                          </button>
-                        )}
-                      </div>
-
-                      {(!product.fabricSelections || product.fabricSelections.length === 0) ? (
-                        <div
-                          style={{
-                            fontSize: '11px',
-                            color: 'var(--gray)',
-                            fontStyle: 'italic',
-                            padding: '12px',
-                            background: '#f8f9fa',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '2px',
-                            textAlign: 'center',
-                          }}
-                        >
-                          No fabric specifications added yet. Click "+ Add Fabric Row" to allocate materials.
-                        </div>
-                      ) : (
-                        <div style={{ overflowX: 'auto' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', border: '1px solid #111' }}>
-                            <thead>
-                              <tr style={{ background: '#f8f9fa', borderBottom: '1.5px solid #111' }}>
-                                <th style={{ padding: '6px 4px', textAlign: 'center', width: '32px', borderRight: '1px solid #111' }}>Sl. No.</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Part Name</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Specification</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Code</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px', borderRight: '1px solid #111' }}>Reference Image</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'left', width: '60px', borderRight: '1px solid #111' }}>Qty</th>
-                                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Remark</th>
-                                {!isViewingSnapshot && <th className="no-print" style={{ width: '20px' }}></th>}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {product.fabricSelections.map((fab, fIdx) => (
-                                <tr key={fab.id || fIdx} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                  <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 600, borderRight: '1px solid #e5e7eb' }}>{fIdx + 1}</td>
-                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                    {!isViewingSnapshot ? (
-                                      <input
-                                        className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.partName || ''}
-                                        placeholder="e.g. Seating"
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'partName', e.target.value)}
-                                      />
-                                    ) : (
-                                      fab.partName || '—'
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                    {!isViewingSnapshot ? (
-                                      <input
-                                        className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.specification || fab.brand || ''}
-                                        placeholder="e.g. Sarom"
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'specification', e.target.value)}
-                                      />
-                                    ) : (
-                                      fab.specification || fab.brand || '—'
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                    {!isViewingSnapshot ? (
-                                      <input
-                                        className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.code || fab.catalogueCode || ''}
-                                        placeholder="e.g. 241"
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'code', e.target.value)}
-                                      />
-                                    ) : (
-                                      fab.code || fab.catalogueCode || '—'
-                                    )}
-                                  </td>
-                                  {/* Swatch Reference Image Column (Reference Image 1) */}
-                                  <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #e5e7eb' }}>
-                                    {fab.refImage ? (
-                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                                        <img
-                                          src={fab.refImage}
-                                          alt="Swatch"
-                                          style={{ width: '44px', height: '30px', objectFit: 'cover', border: '1px solid #ccc', borderRadius: '1px' }}
-                                        />
-                                        {!isViewingSnapshot && (
-                                          <button
-                                            type="button"
-                                            className="no-print"
-                                            onClick={() => handleFabricFieldChange(product.id, fab.id, 'refImage', null)}
-                                            style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '9px' }}
-                                            title="Remove swatch"
-                                          >
-                                            ✕
-                                          </button>
-                                        )}
-                                      </div>
-                                    ) : (
-                                      !isViewingSnapshot ? (
-                                        <label style={{ fontSize: '9px', color: '#2b579a', cursor: 'pointer', textDecoration: 'underline' }}>
-                                          📷 Upload
-                                          <input
-                                            type="file"
-                                            accept="image/*"
-                                            style={{ display: 'none' }}
-                                            onChange={(e) => handleFabricSwatchUpload(product.id, fab.id, e.target.files?.[0])}
-                                          />
-                                        </label>
-                                      ) : (
-                                        <span style={{ color: '#aaa', fontSize: '9px' }}>None</span>
-                                      )
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
-                                    {!isViewingSnapshot ? (
-                                      <input
-                                        className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px', width: '45px' }}
-                                        value={fab.qty || fab.totalMeter || ''}
-                                        placeholder="e.g. 6 mtr"
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'qty', e.target.value)}
-                                      />
-                                    ) : (
-                                      fab.qty || fab.totalMeter || '—'
-                                    )}
-                                  </td>
-                                  <td style={{ padding: '4px 6px' }}>
-                                    {!isViewingSnapshot ? (
-                                      <input
-                                        className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.remark || ''}
-                                        placeholder="e.g. Contrast"
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'remark', e.target.value)}
-                                      />
-                                    ) : (
-                                      fab.remark || '—'
-                                    )}
-                                  </td>
-                                  {!isViewingSnapshot && (
-                                    <td className="no-print" style={{ padding: '4px' }}>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleRemoveFabricRow(product.id, fab.id)}
-                                        style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px' }}
-                                      >
-                                        ✕
-                                      </button>
-                                    </td>
-                                  )}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Section 14 Technical Boxes: Client Input (Blue) & ZOOSH Proposed Spec (Green) */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                      {/* Box A: Client Input — Blue Outline */}
-                      <div
-                        style={{
-                          border: '1.5px solid #2b579a',
-                          borderRadius: '2px',
-                          padding: '10px 14px',
-                          background: '#f4f7fb',
-                        }}
-                      >
-                        <div style={{ color: '#2b579a', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-                          CLIENT INPUT (SITE MEASUREMENTS & REQUIREMENTS)
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Dining counter height:</span>
-                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.counterHeight || '______ cm'}</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Available clearance:</span>
-                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.clearance || '______ cm'}</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Required site measurement:</span>
-                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.siteMeasurement || '______ cm'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Box B: ZOOSH Proposed Specification — Green Outline */}
-                      <div
-                        style={{
-                          border: '1.5px solid #27ae60',
-                          borderRadius: '2px',
-                          padding: '10px 14px',
-                          background: '#f5faf6',
-                        }}
-                      >
-                        <div style={{ color: '#27ae60', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
-                          ZOOSH PROPOSED SPECIFICATION (FACTORY STANDARDS)
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Proposed overall height:</span>
-                            <span style={{ fontWeight: 700, color: '#111' }}>75 cm</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Proposed seat height:</span>
-                            <span style={{ fontWeight: 700, color: '#111' }}>65 cm</span>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                            <span style={{ color: '#333' }}>Internal frame:</span>
-                            <span style={{ fontWeight: 600, color: '#111' }}>Treated Solid Teak Wood</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Designated Customer Note Area (Word Editable Form Field) */}
-                    <div>
-                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Customer Note
-                      </span>
-                      <div style={{ fontSize: '10px', color: 'var(--gray)', margin: '1px 0 4px' }}>
-                        Designated editable note area for customer feedback & finish requirements:
-                      </div>
-
-                      {!isViewingSnapshot ? (
-                        <textarea
-                          rows={3}
-                          placeholder="Type customer notes, finish instructions, or specific upholstery preferences..."
-                          value={product.customerNotes || ''}
-                          onChange={(e) => handleProductUpdate(product.id, { customerNotes: e.target.value }, true)}
-                          style={{
-                            width: '100%',
-                            boxSizing: 'border-box',
-                            padding: '8px 10px',
-                            fontSize: '11px',
-                            fontFamily: 'var(--font-sans)',
-                            lineHeight: 1.5,
-                            border: '1px solid #111',
-                            borderRadius: '2px',
-                            background: '#ffffff',
-                            resize: 'vertical',
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            padding: '8px 10px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '2px',
-                            fontSize: '11px',
-                            background: '#f8f9fa',
-                            minHeight: '45px',
-                            fontStyle: product.customerNotes ? 'normal' : 'italic',
-                            color: product.customerNotes ? '#111' : 'var(--gray)',
-                          }}
-                        >
-                          {product.customerNotes || 'No customer notes recorded.'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* =========================================================
-                      RIGHT SECTION: Dedicated Fixed-Width CLIENT REMARKS Column (Reference Image 2)
-                  ========================================================= */}
-                  <div
-                    style={{
-                      borderLeft: '1.5px solid #111111',
-                      paddingLeft: '18px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                      <h3
-                        style={{
-                          fontFamily: 'var(--font-sans)',
-                          fontSize: '13px',
-                          fontWeight: 800,
-                          textDecoration: 'underline',
-                          textTransform: 'uppercase',
-                          margin: '0 0 6px',
-                          letterSpacing: '0.04em',
-                          color: '#111111',
-                        }}
-                      >
-                        CLIENT REMARKS
-                      </h3>
-                      <div
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          textDecoration: 'underline',
-                          color: '#111111',
-                        }}
-                      >
-                        Revision : {product.remarksRevision || '01'}
-                      </div>
-                    </div>
-
-                    {/* Numbered List of Client Remarks (Reference Image 2) */}
-                    <ol
-                      style={{
-                        margin: '0 0 16px',
-                        paddingLeft: '18px',
-                        fontSize: '11px',
-                        lineHeight: 1.8,
-                        color: '#111111',
-                        flex: 1,
-                      }}
-                    >
-                      {(product.clientRemarks && product.clientRemarks.length > 0) ? (
-                        product.clientRemarks.map((rem, rIdx) => (
-                          <li key={rIdx} style={{ marginBottom: '6px' }}>
-                            <span>{rem}</span>
-                            {!isViewingSnapshot && (
-                              <button
-                                type="button"
-                                className="no-print"
-                                onClick={() => handleRemoveClientRemark(product.id, rIdx)}
-                                style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', marginLeft: '6px', fontSize: '10px' }}
-                                title="Remove remark"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </li>
-                        ))
-                      ) : (
-                        <li style={{ fontStyle: 'italic', color: '#888' }}>
-                          No client remarks recorded.
-                        </li>
-                      )}
-                    </ol>
-
-                    {/* Add Client Remark Field (hidden on print) */}
-                    {!isViewingSnapshot && (
-                      <div className="no-print" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '10px' }}>
-                        <input
-                          placeholder="+ Add client remark..."
-                          className="inp"
-                          style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && e.target.value.trim()) {
-                              handleAddClientRemark(product.id, e.target.value);
-                              e.target.value = '';
-                            }
-                          }}
-                        />
-                        <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
-                          Press Enter to save remark (increments Remarks Rev)
-                        </div>
-                      </div>
                     )}
+                    <button
+                      type="button"
+                      className="no-print"
+                      onClick={() => handleExportSingleProductWord(product, pIdx)}
+                      disabled={exportingWord}
+                      style={{
+                        background: '#107c41',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        padding: '3px 8px',
+                        borderRadius: '2px',
+                        cursor: exportingWord ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                      }}
+                      title={`Download editable Microsoft Word document (.docx) for ${product.name}`}
+                    >
+                      <span>📥</span>
+                      <span>Word (.docx)</span>
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Product Page Footer Signatures & Page Number */}
+              {/* Main Product Layout: Left Workspace + Right Client Remarks Column */}
               <div
                 style={{
-                  borderTop: '1px solid #e0e0e0',
-                  paddingTop: '14px',
-                  marginTop: '20px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-end',
-                  fontSize: '10px',
-                  color: 'var(--gray)',
+                  display: 'grid',
+                  gridTemplateColumns: isPortrait ? '1fr' : '1fr 240px',
+                  gap: '18px',
+                  alignItems: 'stretch',
+                  flex: 1,
                 }}
               >
-                <div>
-                  <div style={{ fontWeight: 700, textTransform: 'uppercase', color: '#111' }}>Reviewed By:</div>
-                  <div style={{ marginTop: '22px', borderTop: '1px solid #111', width: '140px' }} />
-                  <div style={{ marginTop: '2px' }}>Authorized Workshop Signatory</div>
+                {/* =========================================================
+                    LEFT SECTION: Primary Image Workspace, Additional Views, Fabric Table
+                ========================================================= */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {/* Primary Reference Image Workspace & Additional Images Grid (Section 4) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {additionalImgs.length === 0 ? (
+                      /* 1 Single Primary Image (Dominant full-width card) */
+                      <div
+                        style={{
+                          position: 'relative',
+                          border: '1.5px solid #111111',
+                          background: '#ffffff',
+                          height: isPortrait ? '360px' : '410px',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        {/* Header Badges & Controls */}
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: '8px',
+                            right: '8px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            zIndex: 20,
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          <div
+                            style={{
+                              background: '#e3f2fd',
+                              border: '1px solid #90caf9',
+                              padding: '3px 8px',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              color: '#1565c0',
+                              borderRadius: '2px',
+                              letterSpacing: '0.04em',
+                              pointerEvents: 'auto',
+                            }}
+                          >
+                            Reference Image
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '5px', pointerEvents: 'auto' }} className="no-print">
+                            {product.originalPhoto && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetCrop(product.id, 'primary')}
+                                style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                title="Reset to original uncropped image"
+                              >
+                                ↺ Reset Crop
+                              </button>
+                            )}
+                            {!isViewingSnapshot && (
+                              <button
+                                type="button"
+                                onClick={() => setCropTarget({ productId: product.id, imageType: 'primary', imageSrc: product.originalPhoto || product.photo })}
+                                style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 6px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                title="Crop Reference Image"
+                              >
+                                ✂️ Crop
+                              </button>
+                            )}
+                            {!isViewingSnapshot && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleImageLock(product.id, 'primary')}
+                                style={{
+                                  background: product.imageLocked ? '#111' : '#fff',
+                                  color: product.imageLocked ? '#fff' : '#111',
+                                  border: '1px solid #ccc',
+                                  padding: '2px 6px',
+                                  fontSize: '9px',
+                                  cursor: 'pointer',
+                                  borderRadius: '2px',
+                                }}
+                              >
+                                {product.imageLocked ? '🔒 Locked' : '🔓 Lock'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ width: '100%', height: '100%' }}>
+                          <AnnotationCanvas
+                            imageSrc={product.photo}
+                            annotations={product.annotations || []}
+                            onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                            activeTool={activeTool}
+                            activeColor={activeColor}
+                            activeStroke={activeStroke}
+                            isLocked={product.imageLocked}
+                            isReadOnly={isViewingSnapshot}
+                            onApproveProduct={() => {
+                              if (!isApproved) handleToggleApproval(product);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      /* Image Grid: Primary Reference Image dominant on Left, Additional Views on Right */
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isPortrait ? '1fr' : (additionalImgs.length === 1 ? '6fr 4fr' : '5.8fr 4.2fr'),
+                          gap: '10px',
+                          alignItems: 'stretch',
+                        }}
+                      >
+                        {/* Dominant Primary Reference Image */}
+                        <div
+                          style={{
+                            position: 'relative',
+                            border: '1.5px solid #111111',
+                            background: '#ffffff',
+                            height: isPortrait ? '320px' : '390px',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '8px',
+                              left: '8px',
+                              right: '8px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              zIndex: 20,
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            <div
+                              style={{
+                                background: '#e3f2fd',
+                                border: '1px solid #90caf9',
+                                padding: '3px 8px',
+                                fontSize: '10px',
+                                fontWeight: 800,
+                                color: '#1565c0',
+                                borderRadius: '2px',
+                                letterSpacing: '0.04em',
+                                pointerEvents: 'auto',
+                              }}
+                            >
+                              Reference Image
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '4px', pointerEvents: 'auto' }} className="no-print">
+                              {product.originalPhoto && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleResetCrop(product.id, 'primary')}
+                                  style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                  title="Reset crop"
+                                >
+                                  ↺ Reset
+                                </button>
+                              )}
+                              {!isViewingSnapshot && (
+                                <button
+                                  type="button"
+                                  onClick={() => setCropTarget({ productId: product.id, imageType: 'primary', imageSrc: product.originalPhoto || product.photo })}
+                                  style={{ background: '#fff', border: '1px solid #ccc', padding: '2px 5px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
+                                  title="Crop"
+                                >
+                                  ✂️ Crop
+                                </button>
+                              )}
+                              {!isViewingSnapshot && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleImageLock(product.id, 'primary')}
+                                  style={{
+                                    background: product.imageLocked ? '#111' : '#fff',
+                                    color: product.imageLocked ? '#fff' : '#111',
+                                    border: '1px solid #ccc',
+                                    padding: '2px 5px',
+                                    fontSize: '9px',
+                                    cursor: 'pointer',
+                                    borderRadius: '2px',
+                                  }}
+                                >
+                                  {product.imageLocked ? '🔒' : '🔓'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div style={{ width: '100%', height: '100%' }}>
+                            <AnnotationCanvas
+                              imageSrc={product.photo}
+                              annotations={product.annotations || []}
+                              onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                              activeTool={activeTool}
+                              activeColor={activeColor}
+                              activeStroke={activeStroke}
+                              isLocked={product.imageLocked}
+                              isReadOnly={isViewingSnapshot}
+                              onApproveProduct={() => {
+                                if (!isApproved) handleToggleApproval(product);
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Additional Images Cells */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: additionalImgs.length > 2 ? '1fr 1fr' : '1fr',
+                            gap: '8px',
+                            alignContent: 'start',
+                          }}
+                        >
+                          {additionalImgs.map((img, addIdx) => (
+                            <div
+                              key={img.id}
+                              style={{
+                                position: 'relative',
+                                border: '1px solid #bbb',
+                                background: '#ffffff',
+                                height: additionalImgs.length === 1 ? '390px' : '190px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                boxSizing: 'border-box',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  padding: '4px 8px',
+                                  background: '#f1f3f5',
+                                  borderBottom: '1px solid #ddd',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  color: '#333',
+                                }}
+                              >
+                                <span>{img.label || `Picture - ${addIdx + 2}`}</span>
+                                <div style={{ display: 'flex', gap: '4px' }} className="no-print">
+                                  {img.originalUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetCrop(product.id, 'additional', img.id)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                      title="Reset crop"
+                                    >
+                                      ↺
+                                    </button>
+                                  )}
+                                  {!isViewingSnapshot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                      title="Crop"
+                                    >
+                                      ✂️
+                                    </button>
+                                  )}
+                                  {!isViewingSnapshot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                      title={img.locked ? 'Locked' : 'Unlocked'}
+                                    >
+                                      {img.locked ? '🔒' : '🔓'}
+                                    </button>
+                                  )}
+                                  {!isViewingSnapshot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                      style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                                      title="Remove view"
+                                    >
+                                      ✕
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', padding: '4px' }}>
+                                <img
+                                  src={img.url}
+                                  alt={img.label}
+                                  style={{
+                                    maxWidth: '100%',
+                                    maxHeight: '100%',
+                                    objectFit: 'contain',
+                                    display: 'block',
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Upload New Additional Image control (Hidden in print) */}
+                    {!isViewingSnapshot && (
+                      <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
+                        <label
+                          style={{
+                            fontSize: '10px',
+                            color: '#2b579a',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                          }}
+                        >
+                          + Upload Additional Image (Picture - {additionalImgs.length + 2})
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleAddAdditionalImage(product.id, e)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected Fabric Details Table (Exact Reference Image 1 Layout) */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Selected Fabric Details
+                      </span>
+                      {!isViewingSnapshot && (
+                        <button
+                          type="button"
+                          className="no-print del-btn"
+                          onClick={() => handleAddFabricRow(product.id)}
+                          style={{ fontSize: '10px', padding: '2px 8px' }}
+                        >
+                          + Add Fabric Row
+                        </button>
+                      )}
+                    </div>
+
+                    {(!product.fabricSelections || product.fabricSelections.length === 0) ? (
+                      <div
+                        style={{
+                          fontSize: '10px',
+                          color: 'var(--gray)',
+                          fontStyle: 'italic',
+                          padding: '10px',
+                          background: '#f8f9fa',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '2px',
+                          textAlign: 'center',
+                        }}
+                      >
+                        No fabric specifications added yet. Click "+ Add Fabric Row" to allocate materials.
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', border: '1px solid #111' }}>
+                          <thead>
+                            <tr style={{ background: '#f8f9fa', borderBottom: '1.5px solid #111' }}>
+                              <th style={{ padding: '6px 4px', textAlign: 'center', width: '32px', borderRight: '1px solid #111' }}>Sl. No.</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Part Name</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Specification</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Code</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px', borderRight: '1px solid #111' }}>Reference Image</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', width: '60px', borderRight: '1px solid #111' }}>Qty</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left' }}>Remark</th>
+                              {!isViewingSnapshot && <th className="no-print" style={{ width: '20px' }}></th>}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {product.fabricSelections.map((fab, fIdx) => (
+                              <tr key={fab.id || fIdx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 600, borderRight: '1px solid #e5e7eb' }}>{fIdx + 1}</td>
+                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                  {!isViewingSnapshot ? (
+                                    <input
+                                      className="inp"
+                                      style={{ padding: '2px 4px', fontSize: '10px' }}
+                                      value={fab.partName || ''}
+                                      placeholder="e.g. Seating"
+                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'partName', e.target.value)}
+                                    />
+                                  ) : (
+                                    fab.partName || '—'
+                                  )}
+                                </td>
+                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                  {!isViewingSnapshot ? (
+                                    <input
+                                      className="inp"
+                                      style={{ padding: '2px 4px', fontSize: '10px' }}
+                                      value={fab.specification || fab.brand || ''}
+                                      placeholder="e.g. Sarom"
+                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'specification', e.target.value)}
+                                    />
+                                  ) : (
+                                    fab.specification || fab.brand || '—'
+                                  )}
+                                </td>
+                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                  {!isViewingSnapshot ? (
+                                    <input
+                                      className="inp"
+                                      style={{ padding: '2px 4px', fontSize: '10px' }}
+                                      value={fab.code || fab.catalogueCode || ''}
+                                      placeholder="e.g. 241"
+                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'code', e.target.value)}
+                                    />
+                                  ) : (
+                                    fab.code || fab.catalogueCode || '—'
+                                  )}
+                                </td>
+                                <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #e5e7eb' }}>
+                                  {fab.refImage ? (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                      <img
+                                        src={fab.refImage}
+                                        alt="Swatch"
+                                        style={{ width: '44px', height: '30px', objectFit: 'cover', border: '1px solid #ccc', borderRadius: '1px' }}
+                                      />
+                                      {!isViewingSnapshot && (
+                                        <button
+                                          type="button"
+                                          className="no-print"
+                                          onClick={() => handleFabricFieldChange(product.id, fab.id, 'refImage', null)}
+                                          style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '9px' }}
+                                          title="Remove swatch"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    !isViewingSnapshot ? (
+                                      <label style={{ fontSize: '9px', color: '#2b579a', cursor: 'pointer', textDecoration: 'underline' }}>
+                                        📷 Upload
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          style={{ display: 'none' }}
+                                          onChange={(e) => handleFabricSwatchUpload(product.id, fab.id, e.target.files?.[0])}
+                                        />
+                                      </label>
+                                    ) : (
+                                      <span style={{ color: '#aaa', fontSize: '9px' }}>None</span>
+                                    )
+                                  )}
+                                </td>
+                                <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
+                                  {!isViewingSnapshot ? (
+                                    <input
+                                      className="inp"
+                                      style={{ padding: '2px 4px', fontSize: '10px', width: '45px' }}
+                                      value={fab.qty || fab.totalMeter || ''}
+                                      placeholder="e.g. 6 mtr"
+                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'qty', e.target.value)}
+                                    />
+                                  ) : (
+                                    fab.qty || fab.totalMeter || '—'
+                                  )}
+                                </td>
+                                <td style={{ padding: '4px 6px' }}>
+                                  {!isViewingSnapshot ? (
+                                    <input
+                                      className="inp"
+                                      style={{ padding: '2px 4px', fontSize: '10px' }}
+                                      value={fab.remark || ''}
+                                      placeholder="e.g. Contrast"
+                                      onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'remark', e.target.value)}
+                                    />
+                                  ) : (
+                                    fab.remark || '—'
+                                  )}
+                                </td>
+                                {!isViewingSnapshot && (
+                                  <td className="no-print" style={{ padding: '4px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFabricRow(product.id, fab.id)}
+                                      style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px' }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </td>
+                                )}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div style={{ textAlign: 'center' }}>
-                  <div>Last Edited: {new Date().toLocaleDateString('en-IN', { dateStyle: 'short' })}</div>
-                  <div style={{ fontWeight: 600 }}>Page {pageNum} of {totalPages}</div>
-                </div>
+                {/* =========================================================
+                    RIGHT SECTION: Dedicated Fixed-Width CLIENT REMARKS Column (Reference Image 2)
+                ========================================================= */}
+                <div
+                  style={{
+                    borderLeft: '1.5px solid #111111',
+                    paddingLeft: '18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div style={{ textAlign: 'center', marginBottom: '14px' }}>
+                    <h3
+                      style={{
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        textDecoration: 'underline',
+                        textTransform: 'uppercase',
+                        margin: '0 0 4px',
+                        letterSpacing: '0.04em',
+                        color: '#111111',
+                      }}
+                    >
+                      CLIENT REMARKS
+                    </h3>
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        textDecoration: 'underline',
+                        color: '#111111',
+                      }}
+                    >
+                      Revision : {product.remarksRevision || '00'}
+                    </div>
+                  </div>
 
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 700, textTransform: 'uppercase', color: '#111' }}>Client Approval:</div>
-                  <div style={{ marginTop: '22px', borderTop: '1px solid #111', width: '140px', marginLeft: 'auto' }} />
-                  <div style={{ marginTop: '2px' }}>Client Signature & Date</div>
+                  {/* Numbered List of Client Remarks (Reference Image 2) */}
+                  <ol
+                    style={{
+                      margin: '0 0 16px',
+                      paddingLeft: '18px',
+                      fontSize: '11px',
+                      lineHeight: 1.8,
+                      color: '#111111',
+                      flex: 1,
+                    }}
+                  >
+                    {(product.clientRemarks && product.clientRemarks.length > 0) ? (
+                      product.clientRemarks.map((rem, rIdx) => (
+                        <li key={rIdx} style={{ marginBottom: '6px' }}>
+                          <span>{rem}</span>
+                          {!isViewingSnapshot && (
+                            <button
+                              type="button"
+                              className="no-print"
+                              onClick={() => handleRemoveClientRemark(product.id, rIdx)}
+                              style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', marginLeft: '6px', fontSize: '10px' }}
+                              title="Remove remark"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </li>
+                      ))
+                    ) : (
+                      <li style={{ fontStyle: 'italic', color: '#888' }}>
+                        No client remarks recorded.
+                      </li>
+                    )}
+                  </ol>
+
+                  {/* Add Client Remark Field (hidden on print) */}
+                  {!isViewingSnapshot && (
+                    <div className="no-print" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '10px' }}>
+                      <input
+                        placeholder="+ Add client remark..."
+                        className="inp"
+                        style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.target.value.trim()) {
+                            handleAddClientRemark(product.id, e.target.value);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                      <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
+                        Press Enter to save remark (increments Remarks Rev)
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1654,6 +1804,15 @@ export default function ReviewSheet({
         onConfirmSync={handleConfirmSync}
         isSyncing={isSyncing}
       />
+
+      {/* Optional Intentional Crop Modal (Section 4.4) */}
+      {cropTarget && (
+        <CropModal
+          imageSrc={cropTarget.imageSrc}
+          onApply={handleApplyCrop}
+          onClose={() => setCropTarget(null)}
+        />
+      )}
     </div>
   );
 }

@@ -586,6 +586,191 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
 
   const sections = [];
 
+  // Title Page Section (When exporting full review sheet)
+  if (!targetProduct) {
+    const titlePageBorder = { style: BorderStyle.SINGLE, size: 12, color: '111111' };
+    const titlePageChildren = [
+      new Paragraph({ text: '', spacing: { before: 180 } }),
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: {
+          top: titlePageBorder,
+          bottom: titlePageBorder,
+          left: titlePageBorder,
+          right: titlePageBorder,
+        },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [
+                      new TextRun({
+                        text: 'Product Review Sheet',
+                        bold: true,
+                        underline: {},
+                        size: 32, // 16pt
+                        color: '111111',
+                      }),
+                    ],
+                    spacing: { before: 160, after: 180 },
+                  }),
+                  new Table({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    borders: borderNoneObj,
+                    rows: [
+                      new TableRow({
+                        children: [
+                          new TableCell({
+                            width: { size: 55, type: WidthType.PERCENTAGE },
+                            borders: borderNoneObj,
+                            children: [
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Review on Quotation: ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.latestQuotationNo || `QTN-${doc.series}-01`, size: 18 }),
+                                ],
+                                spacing: { after: 60 },
+                              }),
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Client Name: ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.client?.name || '—', size: 18 }),
+                                ],
+                                spacing: { after: 60 },
+                              }),
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Contact No.: ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.client?.phone || '—', size: 18 }),
+                                ],
+                                spacing: { after: 60 },
+                              }),
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Place: ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.client?.addr || '—', size: 18 }),
+                                ],
+                              }),
+                            ],
+                          }),
+                          new TableCell({
+                            width: { size: 45, type: WidthType.PERCENTAGE },
+                            borders: borderNoneObj,
+                            children: [
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Review Sheet Revision - ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.sheetNoFormatted || '01', size: 18 }),
+                                ],
+                                spacing: { after: 60 },
+                              }),
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Submitted on: ', bold: true, size: 18 }),
+                                  new TextRun({ text: new Date().toLocaleDateString('en-GB'), size: 18 }),
+                                ],
+                                spacing: { after: 60 },
+                              }),
+                              new Paragraph({
+                                children: [
+                                  new TextRun({ text: 'Approved on: ', bold: true, size: 18 }),
+                                  new TextRun({ text: doc.approvedAt ? new Date(doc.approvedAt).toLocaleDateString('en-GB') : '—', size: 18 }),
+                                ],
+                              }),
+                            ],
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+                  new Paragraph({ text: '', spacing: { after: 120 } }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+
+      new Paragraph({ text: '', spacing: { after: 180 } }),
+
+      // Mandatory Notice Heading
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Important Note Regarding Your Furniture Order Specification',
+            bold: true,
+            size: 22,
+            color: '111111',
+          }),
+        ],
+        spacing: { after: 120 },
+      }),
+
+      // Paragraph 1
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Please review the product details listed below carefully. If you have any changes or suggestions, kindly add your notes directly to the respective items. Based on your feedback, we will finalize the quotation for your approval before starting production.',
+            size: 18,
+            color: '222222',
+          }),
+        ],
+        spacing: { after: 120 },
+      }),
+
+      // Paragraph 2
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Please note that all production documents and drawings will be generated based entirely on this review note. Consequently, our factory cannot accept responsibility for any design or technical details not explicitly specified in this final revision.',
+            size: 18,
+            color: '222222',
+          }),
+        ],
+        spacing: { after: 120 },
+      }),
+
+      // Paragraph 3
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Furthermore, this process confirms that no major changes will be made after approval. Any items kept pending for confirmation—with the exception of fabric selection—will not be scheduled for production. Kindly verify each detail to ensure every piece is manufactured precisely to your preference.',
+            size: 18,
+            color: '222222',
+          }),
+        ],
+        spacing: { after: 200 },
+      }),
+
+      // Title Page Footer (Title page only)
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Date: ${new Date().toLocaleDateString('en-IN')}\t\tZOOSH Custom Furniture Specification Document`,
+            size: 15,
+            color: '777777',
+          }),
+        ],
+        spacing: { before: 140 },
+      }),
+    ];
+
+    sections.push({
+      properties: {
+        page: {
+          pageOrientation: isPortrait ? PageOrientation.PORTRAIT : PageOrientation.LANDSCAPE,
+          size: { width: pageWidth, height: pageHeight },
+          margin: { top: 720, right: 720, bottom: 720, left: 720 },
+        },
+      },
+      children: titlePageChildren,
+    });
+  }
+
   for (let i = 0; i < productsToExport.length; i++) {
     const product = productsToExport[i];
     const pIdx = doc.products.findIndex((p) => p.id === product.id);
@@ -682,160 +867,6 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       new Paragraph({ text: '', spacing: { after: 120 } })
     );
 
-    // Add Technical Specifications (Client Input & ZOOSH Proposed Spec) to left column
-    const blueBorder = { style: BorderStyle.SINGLE, size: 6, color: '2B579A' };
-    const greenBorder = { style: BorderStyle.SINGLE, size: 6, color: '27AE60' };
-
-    leftChildren.push(
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: borderNoneObj,
-        rows: [
-          new TableRow({
-            children: [
-              // Client Input Box (Blue)
-              new TableCell({
-                width: { size: 50, type: WidthType.PERCENTAGE },
-                borders: { top: blueBorder, bottom: blueBorder, left: blueBorder, right: blueBorder },
-                shading: { fill: 'F4F7FB', type: ShadingType.CLEAR },
-                children: [
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: 'CLIENT INPUT (SITE MEASUREMENTS)',
-                        bold: true,
-                        size: 16,
-                        color: '2B579A',
-                      }),
-                    ],
-                    spacing: { after: 60 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Dining counter height: ', size: 15, color: '444444' }),
-                      new TextRun({ text: product.clientInputs?.counterHeight || '______ cm', bold: true, size: 15, color: '111111' }),
-                    ],
-                    spacing: { after: 40 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Available clearance: ', size: 15, color: '444444' }),
-                      new TextRun({ text: product.clientInputs?.clearance || '______ cm', bold: true, size: 15, color: '111111' }),
-                    ],
-                    spacing: { after: 40 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Required site measurement: ', size: 15, color: '444444' }),
-                      new TextRun({ text: product.clientInputs?.siteMeasurement || '______ cm', bold: true, size: 15, color: '111111' }),
-                    ],
-                  }),
-                ],
-              }),
-              // Proposed Spec Box (Green)
-              new TableCell({
-                width: { size: 50, type: WidthType.PERCENTAGE },
-                borders: { top: greenBorder, bottom: greenBorder, left: greenBorder, right: greenBorder },
-                shading: { fill: 'F5FAF6', type: ShadingType.CLEAR },
-                children: [
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: 'ZOOSH PROPOSED SPECIFICATION',
-                        bold: true,
-                        size: 16,
-                        color: '27AE60',
-                      }),
-                    ],
-                    spacing: { after: 60 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Proposed overall height: ', size: 15, color: '444444' }),
-                      new TextRun({ text: '75 cm', bold: true, size: 15, color: '111111' }),
-                    ],
-                    spacing: { after: 40 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Proposed seat height: ', size: 15, color: '444444' }),
-                      new TextRun({ text: '65 cm', bold: true, size: 15, color: '111111' }),
-                    ],
-                    spacing: { after: 40 },
-                  }),
-                  new Paragraph({
-                    children: [
-                      new TextRun({ text: 'Internal frame: ', size: 15, color: '444444' }),
-                      new TextRun({ text: 'Treated Solid Teak Wood', bold: true, size: 15, color: '111111' }),
-                    ],
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      }),
-      new Paragraph({ text: '', spacing: { after: 120 } })
-    );
-
-    // Add Customer Note Area to left column
-    leftChildren.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: 'CUSTOMER NOTE',
-            bold: true,
-            size: 18,
-            color: '111111',
-          }),
-        ],
-        spacing: { after: 40 },
-      }),
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: 'Designated editable note area for customer feedback & finish requirements:',
-            size: 15,
-            color: '666666',
-          }),
-        ],
-        spacing: { after: 60 },
-      }),
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                borders: {
-                  top: { style: BorderStyle.SINGLE, size: 6, color: '111111' },
-                  bottom: { style: BorderStyle.SINGLE, size: 6, color: '111111' },
-                  left: { style: BorderStyle.SINGLE, size: 6, color: '111111' },
-                  right: { style: BorderStyle.SINGLE, size: 6, color: '111111' },
-                },
-                shading: { fill: 'FAFAFA', type: ShadingType.CLEAR },
-                children: [
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text:
-                          product.customerNotes ||
-                          'Click here to type customer feedback, specific upholstery instructions, or finish requirements in Microsoft Word...',
-                        italics: !product.customerNotes,
-                        size: 18,
-                        color: product.customerNotes ? '111111' : '777777',
-                      }),
-                    ],
-                    spacing: { before: 100, after: 100 },
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      })
-    );
-
     // Build Right Column: Dedicated CLIENT REMARKS Column (Reference Image 2)
     const rightRemarksChildren = [
       new Paragraph({
@@ -855,7 +886,7 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
-            text: `Revision : ${product.remarksRevision || '01'}`,
+            text: `Revision : ${product.remarksRevision || '00'}`,
             bold: true,
             underline: {},
             size: 17,
@@ -986,7 +1017,7 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
                 }),
               ],
             }),
-            // Col 3: Revision & Last Edited
+            // Col 3: Product Rev & Status
             new TableCell({
               width: { size: 28, type: WidthType.PERCENTAGE },
               borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
@@ -994,15 +1025,20 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
               children: [
                 new Paragraph({
                   children: [
-                    new TextRun({ text: 'Revision : ', bold: true, size: 18 }),
-                    new TextRun({ text: `${doc.sheetNoFormatted || '01'}`, bold: true, size: 18 }),
+                    new TextRun({ text: 'Product Rev : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${product.productRevision || '00'}`, bold: true, size: 18 }),
                   ],
                   spacing: { after: 30 },
                 }),
                 new Paragraph({
                   children: [
-                    new TextRun({ text: 'Last Edited : ', bold: true, size: 18 }),
-                    new TextRun({ text: `${new Date().toLocaleDateString('en-IN')}`, size: 18 }),
+                    new TextRun({ text: 'Status : ', bold: true, size: 18 }),
+                    new TextRun({
+                      text: isApproved ? 'Approved' : 'Pending',
+                      bold: true,
+                      size: 18,
+                      color: isApproved ? '27AE60' : 'D97706',
+                    }),
                   ],
                 }),
               ],
@@ -1012,27 +1048,8 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       ],
     });
 
-    // Page Children
+    // Page Children (Strictly NO repeated product-page headers or footers)
     const pageChildren = [
-      // Running Document Header
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: 'ZOOSH CUSTOM FURNITURE • PRODUCT REVIEW SHEET',
-            bold: true,
-            size: 16,
-            color: '666666',
-          }),
-          new TextRun({
-            text: `\tQTN-${doc.series} / SHEET NO.: ${doc.sheetNoFormatted || '01'}`,
-            bold: true,
-            size: 16,
-            color: '666666',
-          }),
-        ],
-        spacing: { after: 120 },
-      }),
-
       // Top Product Information Box (Exact Reference Image 2 Layout)
       topInfoTable,
 
@@ -1041,55 +1058,8 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         spacing: { after: 140 },
       }),
 
-      // 2-Column Product Content (Left Image/Fabric/Specs & Right Client Remarks)
+      // 2-Column Product Content (Left Image/Fabric & Right Client Remarks)
       contentTable,
-
-      // Footer Signatures & Approval Line
-      new Paragraph({
-        text: '',
-        spacing: { after: 160 },
-      }),
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: borderNoneObj,
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                borders: borderNoneObj,
-                children: [
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: 'Client Signatory: __________________________   Date: ____________',
-                        size: 16,
-                        color: '444444',
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-              new TableCell({
-                borders: borderNoneObj,
-                children: [
-                  new Paragraph({
-                    alignment: AlignmentType.RIGHT,
-                    children: [
-                      new TextRun({
-                        text: `Production Manager Approval: ${isApproved ? 'Approved (PID Generated)' : 'Pending'}   Date: ${
-                          product.approvedAt ? new Date(product.approvedAt).toLocaleDateString('en-IN') : '____________'
-                        }`,
-                        size: 16,
-                        color: '444444',
-                      }),
-                    ],
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      }),
     ];
 
     sections.push({
