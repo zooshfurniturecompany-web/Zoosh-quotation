@@ -345,8 +345,6 @@ export default function AnnotationCanvas({
         position: 'relative',
         width: '100%',
         height: '100%',
-        minHeight: '340px',
-        maxHeight: '460px',
         background: '#f8f9fa',
         border: '1px solid var(--border)',
         borderRadius: '2px',

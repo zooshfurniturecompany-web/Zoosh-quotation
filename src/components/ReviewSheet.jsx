@@ -15,6 +15,65 @@ import CropModal from './CropModal';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
+/**
+ * Resize and compress user-uploaded image files to crisp, lightweight JPEGs
+ * to avoid memory exhaustion during Chromium print/PDF generation
+ * and prevent localStorage quota overflow.
+ */
+export function optimizeImageFile(file, maxDimension = 1400, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      return reject(new Error('Selected file is not an image'));
+    }
+
+    if (file.type === 'image/svg+xml') {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return resolve(reader.result);
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const optimizedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(optimizedDataUrl);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function ReviewSheet({
   series: initialSeries,
   quote: initialQuote,
@@ -495,14 +554,16 @@ export default function ReviewSheet({
     handleProductUpdate(productId, { fabricSelections: updated }, true);
   };
 
-  const handleFabricSwatchUpload = (productId, rowId, file) => {
+  const handleFabricSwatchUpload = async (productId, rowId, file) => {
     if (!file || isViewingSnapshot) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      handleFabricFieldChange(productId, rowId, 'refImage', reader.result);
+    try {
+      const optimizedUrl = await optimizeImageFile(file, 400, 0.85);
+      handleFabricFieldChange(productId, rowId, 'refImage', optimizedUrl);
       addToast('Uploaded fabric swatch thumbnail', 'success');
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Swatch upload error:', err);
+      addToast('Failed to upload swatch thumbnail', 'error');
+    }
   };
 
   const handleRemoveFabricRow = (productId, rowId) => {
@@ -540,32 +601,67 @@ export default function ReviewSheet({
   };
 
   // Add additional photo labeled Picture - 2, Picture - 3...
-  const handleAddAdditionalImage = (productId, e) => {
+  const handleAddAdditionalImage = async (productId, e) => {
     if (isViewingSnapshot) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      addToast('Optimizing & attaching image...', 'info');
+      const optimizedUrl = await optimizeImageFile(file, 1400, 0.82);
       const prod = doc.products.find((p) => p.id === productId);
       if (prod) {
         const nextPicNum = (prod.additionalImages?.length || 0) + 2;
         const newImg = {
           id: `img-${Date.now()}`,
-          url: reader.result,
+          url: optimizedUrl,
           originalUrl: null,
           label: `Picture - ${nextPicNum}`,
           caption: 'Production detail view',
           locked: false,
         };
-        handleProductUpdate(productId, {
-          additionalImages: [...(prod.additionalImages || []), newImg],
+
+        const updatedProducts = doc.products.map((p) => {
+          if (p.id === productId) {
+            return {
+              ...p,
+              additionalImages: [...(p.additionalImages || []), newImg],
+            };
+          }
+          return p;
         });
-        addToast(`Attached ${newImg.label}`, 'success');
+
+        const updatedDoc = {
+          ...doc,
+          products: updatedProducts,
+        };
+
+        pushToUndo(doc.products);
+        setDoc(updatedDoc);
+
+        // Immediately auto-save to storage so it will never disappear upon refresh or PDF printing
+        const saved = await saveReviewDocument(updatedDoc);
+        setDoc(saved);
+
+        if (baselineProductsRef.current) {
+          baselineProductsRef.current[productId] = JSON.stringify({
+            photo: prod.photo,
+            originalPhoto: prod.originalPhoto,
+            annotations: prod.annotations,
+            additionalImages: [...(prod.additionalImages || []), newImg],
+            fabricSelections: prod.fabricSelections,
+            imageLocked: prod.imageLocked,
+            approvalStatus: prod.approvalStatus,
+          });
+        }
+        addToast(`Attached & saved ${newImg.label}`, 'success');
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err) {
+      console.error('Failed to attach image:', err);
+      addToast('Failed to attach image. Please try another image.', 'error');
+    } finally {
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleApplyCrop = (croppedDataUrl) => {
@@ -678,6 +774,18 @@ export default function ReviewSheet({
     addToast('Reordered product views', 'info');
   };
 
+  const handlePrint = async () => {
+    if (saving) return;
+    try {
+      if (doc && !isViewingSnapshot) {
+        await saveReviewDocument(doc);
+      }
+    } catch (e) {
+      console.warn('Pre-print save notice:', e);
+    }
+    window.print();
+  };
+
   if (loading) {
     return (
       <div style={{ padding: '80px 20px', textAlign: 'center', fontFamily: 'var(--font-sans)', background: '#eef0f3', minHeight: '100vh' }}>
@@ -717,8 +825,8 @@ export default function ReviewSheet({
     : doc.latestQuotationNo;
 
   const isPortrait = orientation === 'portrait';
-  const a4PageWidth = isPortrait ? '794px' : '1080px';
-  const a4PageMinHeight = isPortrait ? '1122px' : '764px';
+  const a4PageWidth = isPortrait ? '794px' : '1123px';
+  const a4PageMinHeight = isPortrait ? '1123px' : '794px';
 
   return (
     <div
@@ -732,6 +840,13 @@ export default function ReviewSheet({
         flexDirection: 'column',
       }}
     >
+      {/* Dynamic @page rule matching current orientation for accurate print / PDF export */}
+      <style>{`
+        @page {
+          size: ${isPortrait ? 'A4 portrait' : 'A4 landscape'};
+          margin: 0;
+        }
+      `}</style>
       {/* =========================================================================
           1. MICROSOFT WORD APPLICATION TITLE BAR (no-print)
       ========================================================================= */}
@@ -857,7 +972,7 @@ export default function ReviewSheet({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             style={{
               background: '#ffffff',
               color: '#2b579a',
@@ -968,7 +1083,7 @@ export default function ReviewSheet({
             PAGE 1: FORMAL TITLE PAGE / COVER SHEET (A4)
         ======================================================================= */}
         <div
-          className="word-page-sheet a4-page title-page"
+          className={`word-page-sheet a4-page title-page ${isPortrait ? 'portrait-sheet' : ''}`}
           style={{
             width: a4PageWidth,
             minHeight: a4PageMinHeight,
@@ -1116,8 +1231,8 @@ export default function ReviewSheet({
           return (
             <React.Fragment key={product.id || pIdx}>
               <div
-                className="word-page-sheet a4-page product-page"
-              style={{
+                className={`word-page-sheet a4-page product-page ${isPortrait ? 'portrait-sheet' : ''}`}
+                style={{
                 width: a4PageWidth,
                 minHeight: a4PageMinHeight,
                 background: '#ffffff',
@@ -1245,7 +1360,7 @@ export default function ReviewSheet({
                           position: 'relative',
                           border: '1.5px solid #111111',
                           background: '#ffffff',
-                          height: isPortrait ? '360px' : '410px',
+                          height: isPortrait ? '360px' : '350px',
                           width: '100%',
                           boxSizing: 'border-box',
                         }}
@@ -1353,7 +1468,7 @@ export default function ReviewSheet({
                             position: 'relative',
                             border: '1.5px solid #111111',
                             background: '#ffffff',
-                            height: isPortrait ? '320px' : '390px',
+                            height: isPortrait ? '320px' : '330px',
                             boxSizing: 'border-box',
                           }}
                         >
@@ -1460,7 +1575,7 @@ export default function ReviewSheet({
                                 position: 'relative',
                                 border: '1px solid #bbb',
                                 background: '#ffffff',
-                                height: additionalImgs.length === 1 ? '390px' : '190px',
+                                height: additionalImgs.length === 1 ? (isPortrait ? '320px' : '330px') : (isPortrait ? '160px' : '158px'),
                                 display: 'flex',
                                 flexDirection: 'column',
                                 boxSizing: 'border-box',
@@ -1863,7 +1978,7 @@ export default function ReviewSheet({
             {/* Continuation Page for same product when it has > 4 additional images */}
             {additionalImgs.length > 4 && (
               <div
-                className="word-page-sheet a4-page product-page continuation-page"
+                className={`word-page-sheet a4-page product-page continuation-page ${isPortrait ? 'portrait-sheet' : ''}`}
                 style={{
                   width: a4PageWidth,
                   minHeight: a4PageMinHeight,
@@ -1939,7 +2054,7 @@ export default function ReviewSheet({
                           position: 'relative',
                           border: '1px solid #bbb',
                           background: '#ffffff',
-                          height: isPortrait ? '260px' : '310px',
+                          height: isPortrait ? '260px' : '280px',
                           display: 'flex',
                           flexDirection: 'column',
                           boxSizing: 'border-box',

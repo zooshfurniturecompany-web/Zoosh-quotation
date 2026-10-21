@@ -1049,29 +1049,104 @@ th {
   /* Class to hide application toolbar, audit logs, and controls during print */
 }
 
+@page {
+  size: A4 landscape;
+  margin: 0;
+}
+
 @media print {
   .no-print,
   .navbar,
   .hero,
+  .prev-topbar,
   .review-toolbar-ribbon {
     display: none !important;
   }
 
-  body, .review-word-environment, .word-workspace-canvas {
+  html, body {
+    width: 100% !important;
+    height: auto !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .review-word-environment {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .word-workspace-canvas {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: auto !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    gap: 0 !important;
   }
 
   .word-page-sheet {
-    width: 100% !important;
-    min-height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 297mm !important;
+    height: 210mm !important;
+    max-height: 210mm !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
     margin: 0 !important;
-    padding: 12mm 15mm !important;
+    padding: 7mm 14mm !important;
     box-shadow: none !important;
     border: none !important;
+    page-break-before: auto !important;
     page-break-after: always !important;
+    page-break-inside: avoid !important;
     break-after: page !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+
+  .word-page-sheet.portrait-sheet {
+    width: 210mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    padding: 10mm 14mm !important;
+  }
+
+  .word-page-sheet input {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    outline: none !important;
+    font-family: inherit !important;
+    color: #111111 !important;
+    font-size: 10px !important;
+    width: 100% !important;
+  }
+
+  .word-page-sheet input[type="file"] {
+    display: none !important;
+  }
+
+  .word-page-sheet button {
+    display: none !important;
+  }
+
+  .word-page-sheet img {
+    max-height: 100% !important;
+    object-fit: contain !important;
   }
 }
 
