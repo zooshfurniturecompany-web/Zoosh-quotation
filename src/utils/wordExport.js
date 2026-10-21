@@ -501,7 +501,7 @@ async function buildFabricDetailsWordTable(fabricSelections = []) {
                 alignment: AlignmentType.CENTER,
                 children: [
                   new TextRun({
-                    text: 'No fabric specifications added yet. (Editable in Microsoft Word)',
+                    text: 'No materials specified yet. (Editable in Microsoft Word)',
                     italics: true,
                     size: 16,
                     color: '666666',
@@ -976,13 +976,13 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       }
     }
 
-    // Add Fabric Details Table to left column
+    // Add Materials Table to left column
     const fabricTable = await buildFabricDetailsWordTable(product.fabricSelections);
     leftChildren.push(
       new Paragraph({
         children: [
           new TextRun({
-            text: 'SELECTED FABRIC DETAILS',
+            text: 'SELECTED MATERIALS',
             bold: true,
             size: 18,
             color: '111111',

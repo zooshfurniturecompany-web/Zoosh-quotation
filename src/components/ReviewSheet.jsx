@@ -1591,11 +1591,11 @@ export default function ReviewSheet({
                     )}
                   </div>
 
-                  {/* Selected Fabric Details Table (Exact Reference Image 1 Layout) */}
+                  {/* Selected Materials Table (Exact Reference Image 1 Layout) */}
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                       <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Selected Fabric Details
+                        Selected Materials
                       </span>
                       {!isViewingSnapshot && (
                         <button
@@ -1604,7 +1604,7 @@ export default function ReviewSheet({
                           onClick={() => handleAddFabricRow(product.id)}
                           style={{ fontSize: '10px', padding: '2px 8px' }}
                         >
-                          + Add Fabric Row
+                          + Add Material Row
                         </button>
                       )}
                     </div>
@@ -1622,7 +1622,7 @@ export default function ReviewSheet({
                           textAlign: 'center',
                         }}
                       >
-                        No fabric specifications added yet. Click "+ Add Fabric Row" to allocate materials.
+                        No materials specified yet. Click "+ Add Material Row" to allocate materials.
                       </div>
                     ) : (
                       <div style={{ overflowX: 'auto' }}>
@@ -1802,10 +1802,30 @@ export default function ReviewSheet({
                     </div>
                   </div>
 
+                  {/* Add Client Remark Field at TOP of Client Remarks (hidden on print) */}
+                  {!isViewingSnapshot && (
+                    <div className="no-print" style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: '10px', marginBottom: '12px' }}>
+                      <input
+                        placeholder="+ Add client remark..."
+                        className="inp"
+                        style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.target.value.trim()) {
+                            handleAddClientRemark(product.id, e.target.value);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                      <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
+                        Press Enter to save remark (increments Remarks Rev)
+                      </div>
+                    </div>
+                  )}
+
                   {/* Numbered List of Client Remarks (Reference Image 2) */}
                   <ol
                     style={{
-                      margin: '0 0 16px',
+                      margin: 0,
                       paddingLeft: '18px',
                       fontSize: '11px',
                       lineHeight: 1.8,
@@ -1836,26 +1856,6 @@ export default function ReviewSheet({
                       </li>
                     )}
                   </ol>
-
-                  {/* Add Client Remark Field (hidden on print) */}
-                  {!isViewingSnapshot && (
-                    <div className="no-print" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '10px' }}>
-                      <input
-                        placeholder="+ Add client remark..."
-                        className="inp"
-                        style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            handleAddClientRemark(product.id, e.target.value);
-                            e.target.value = '';
-                          }
-                        }}
-                      />
-                      <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
-                        Press Enter to save remark (increments Remarks Rev)
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
