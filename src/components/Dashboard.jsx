@@ -34,6 +34,7 @@ export default function Dashboard({
   onDelete,
   onDownloadPDF,
   onImportJSON,
+  onReview,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('');
@@ -348,6 +349,16 @@ export default function Dashboard({
                         >
                           Edit
                         </button>
+                        {onReview && (
+                          <button
+                            className="del-btn"
+                            style={{ borderColor: 'var(--black)', color: 'var(--black)', fontWeight: 600 }}
+                            onClick={() => onReview(quote)}
+                            title="Open Product Review Sheet"
+                          >
+                            Review
+                          </button>
+                        )}
                         <button
                           className="del-btn"
                           style={{ borderColor: 'var(--border)', color: 'var(--black)' }}

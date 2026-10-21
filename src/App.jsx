@@ -15,6 +15,8 @@ import {
 import { downloadPDF } from './utils/pdfGenerator';
 import { DEFAULT_ZOOSH_LOGO } from './utils/logo';
 import { supabase, isSupabaseConfigured } from './utils/supabaseClient';
+import ReviewSheet from './components/ReviewSheet';
+import { parseQuotationSeries } from './utils/reviewStorage';
 
 export function sanitizeQuote(quote) {
   return quote;
@@ -22,10 +24,40 @@ export function sanitizeQuote(quote) {
 
 export default function App() {
   const [quotations, setQuotations] = useState([]);
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'form' | 'view'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' | 'form' | 'view' | 'review'
   const [activeQuote, setActiveQuote] = useState(null);
+  const [activeReviewSeries, setActiveReviewSeries] = useState(null);
+  const [activeReviewQuote, setActiveReviewQuote] = useState(null);
   const [downloadModalQuote, setDownloadModalQuote] = useState(null);
   const [toasts, setToasts] = useState([]);
+
+  // Check URL query parameters on initial mount (e.g. ?view=review&series=2627)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get('view');
+      const seriesParam = params.get('series');
+      const quoteIdParam = params.get('quoteId');
+
+      if (viewParam === 'review' && seriesParam) {
+        setActiveReviewSeries(seriesParam);
+        if (quoteIdParam) {
+          getQuotationById(quoteIdParam)
+            .then((q) => {
+              if (q) setActiveReviewQuote(q);
+              setCurrentView('review');
+            })
+            .catch(() => {
+              setCurrentView('review');
+            });
+        } else {
+          setCurrentView('review');
+        }
+      }
+    } catch (e) {
+      console.error('URL parse error:', e);
+    }
+  }, []);
 
   // Load all quotes on mount and listen to realtime updates
   useEffect(() => {
@@ -178,6 +210,31 @@ export default function App() {
     }
   };
 
+  const handleReview = async (quote) => {
+    try {
+      const fullQuote = (quote?.items && quote?.client) ? quote : await getQuotationById(quote.id);
+      const parsed = parseQuotationSeries(fullQuote.no);
+      if (!parsed.valid) {
+        addToast(parsed.error, 'error');
+        return;
+      }
+
+      // Open in a new browser tab per Section 3 requirement
+      const url = `?view=review&series=${parsed.series}&quoteId=${fullQuote.id}`;
+      const newWindow = window.open(url, '_blank');
+
+      // If popup was blocked or user operates in single-window mode
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        setActiveReviewSeries(parsed.series);
+        setActiveReviewQuote(fullQuote);
+        setCurrentView('review');
+      }
+    } catch (err) {
+      console.error('Failed to open Review document:', err);
+      addToast(err.message || 'Error opening Review document', 'error');
+    }
+  };
+
   const handleDuplicate = async (id) => {
     try {
       const duplicated = await duplicateQuotation(id);
@@ -298,8 +355,18 @@ export default function App() {
               Dashboard
             </button>
           )}
-          {currentView === 'view' && (
-            <button className="nav-btn outline" onClick={() => setCurrentView('dashboard')}>
+          {(currentView === 'view' || currentView === 'review') && (
+            <button
+              className="nav-btn outline"
+              onClick={() => {
+                setCurrentView('dashboard');
+                setActiveReviewSeries(null);
+                setActiveReviewQuote(null);
+                if (window.history && window.history.replaceState) {
+                  window.history.replaceState({}, document.title, window.location.pathname);
+                }
+              }}
+            >
               ← Dashboard
             </button>
           )}
@@ -307,10 +374,12 @@ export default function App() {
       </div>
 
       {/* Hero Header */}
-      <div className="hero">
-        <h1>ZOOSH <span>Quotation Portal</span></h1>
-        <p>Professional Furniture Estimator & Management Tool</p>
-      </div>
+      {currentView !== 'review' && (
+        <div className="hero">
+          <h1>ZOOSH <span>Quotation Portal</span></h1>
+          <p>Professional Furniture Estimator & Management Tool</p>
+        </div>
+      )}
 
       {/* Main Views */}
       {currentView === 'dashboard' && (
@@ -332,6 +401,7 @@ export default function App() {
           onDelete={handleDelete}
           onDownloadPDF={(quote) => setDownloadModalQuote(quote)}
           onImportJSON={handleImportJSON}
+          onReview={handleReview}
         />
       )}
 
@@ -343,6 +413,7 @@ export default function App() {
             setCurrentView('dashboard');
             setActiveQuote(null);
           }}
+          onReview={handleReview}
         />
       )}
 
@@ -352,9 +423,27 @@ export default function App() {
             quote={activeQuote}
             onBack={() => setCurrentView('dashboard')}
             onEdit={handleEdit}
+            onReview={handleReview}
             onDownloadPDF={handleDownloadPDF}
           />
         </div>
+      )}
+
+      {currentView === 'review' && (
+        <ReviewSheet
+          series={activeReviewSeries}
+          quote={activeReviewQuote}
+          allQuotes={quotations}
+          onBack={() => {
+            setCurrentView('dashboard');
+            setActiveReviewSeries(null);
+            setActiveReviewQuote(null);
+            if (window.history && window.history.replaceState) {
+              window.history.replaceState({}, document.title, window.location.pathname);
+            }
+          }}
+          addToast={addToast}
+        />
       )}
 
       {/* Dual PDF Download Modal */}

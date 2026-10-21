@@ -4,7 +4,7 @@ import CropModal from './CropModal';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
-export default function QuotationForm({ initialQuote, onSave, onCancel }) {
+export default function QuotationForm({ initialQuote, onSave, onCancel, onReview }) {
   const [quote, setQuote] = useState(() => ({
     ...initialQuote,
     logoData: initialQuote?.logoData || DEFAULT_ZOOSH_LOGO,
@@ -214,6 +214,17 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
             <button className="nav-btn outline" type="button" style={{ color: 'var(--black)', borderColor: 'var(--black)' }} onClick={onCancel}>
               Cancel
             </button>
+            {quote.id && onReview && (
+              <button
+                className="nav-btn outline"
+                type="button"
+                style={{ color: 'var(--black)', borderColor: 'var(--black)', fontWeight: 600 }}
+                onClick={() => onReview(quote)}
+                title="Open Product Review Sheet for this series"
+              >
+                Review
+              </button>
+            )}
             <button className="nav-btn gold" type="submit" style={{ background: 'var(--black)', color: 'var(--white)', border: '1px solid var(--black)' }}>
               {quote.id ? 'Update Quotation' : 'Save Quotation'}
             </button>
