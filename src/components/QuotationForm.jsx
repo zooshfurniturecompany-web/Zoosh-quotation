@@ -72,6 +72,20 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
 
   // Quote metadata updates
   const handleMetaChange = (field, val) => {
+    if (field === 'no') {
+      const match = val.match(/^(?:QTN-)?(\d+)(?:-(\d+))?$/i);
+      if (match) {
+        const seq = parseInt(match[1], 10);
+        const rev = match[2] !== undefined ? parseInt(match[2], 10) : 0;
+        setQuote((prev) => ({
+          ...prev,
+          no: val,
+          sequenceNumber: !isNaN(seq) ? seq : prev.sequenceNumber,
+          revision: !isNaN(rev) ? rev : prev.revision,
+        }));
+        return;
+      }
+    }
     setQuote((prev) => ({ ...prev, [field]: val }));
   };
 
@@ -194,7 +208,7 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
       <div className="card" style={{ borderColor: 'var(--black)', background: 'var(--near-white)', padding: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
           <div style={{ fontFamily: 'var(--font-serif)', fontSize: '16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {quote.id ? '✏ Edit Quotation' : '✦ New Quotation'}
+            {quote.id ? `✏ Edit Quotation (${quote.no})` : '✦ New Quotation'}
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button className="nav-btn outline" type="button" style={{ color: 'var(--black)', borderColor: 'var(--black)' }} onClick={onCancel}>
@@ -298,6 +312,11 @@ export default function QuotationForm({ initialQuote, onSave, onCancel }) {
               readOnly={!quote.id}
               style={!quote.id ? { background: 'var(--near-white)', color: 'var(--gray)', cursor: 'not-allowed' } : {}}
             />
+            {quote.id && (
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                Revision: <strong>{String(quote.revision ?? 0).padStart(2, '0')}</strong>
+              </div>
+            )}
           </div>
           <div>
             <span className="lbl">Date</span>

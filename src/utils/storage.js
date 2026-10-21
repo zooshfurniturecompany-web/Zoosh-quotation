@@ -328,6 +328,49 @@ async function getMaxRevisionForSequence(seq) {
   }
 }
 
+export function getNextRevisionForQuote(quote, allQuotes = []) {
+  if (!quote) return { nextSeq: 2445, nextRev: 0, nextNo: 'QTN-2445-00' };
+
+  const match = (quote.no || '').match(/^(?:QTN-)?(\d+)(?:-(\d+))?$/i);
+  let seq = parseInt(quote.sequenceNumber, 10);
+  let currentRev = parseInt(quote.revision, 10);
+
+  if (isNaN(seq) && match) {
+    seq = parseInt(match[1], 10);
+  }
+  if (isNaN(currentRev) && match && match[2] !== undefined) {
+    currentRev = parseInt(match[2], 10);
+  }
+  if (isNaN(seq)) seq = 2445;
+  if (isNaN(currentRev)) currentRev = 0;
+
+  // Find all other quotations that share this sequence number
+  const otherQuotesForSeq = allQuotes.filter(
+    (q) => (parseInt(q.sequenceNumber, 10) === seq || (q.no && q.no.startsWith(`QTN-${seq}`))) && q.id !== quote.id
+  );
+
+  const existingRevs = new Set(
+    otherQuotesForSeq.map((q) => {
+      let r = parseInt(q.revision, 10);
+      if (isNaN(r)) {
+        const m = (q.no || '').match(/^(?:QTN-)?\d+(?:-(\d+))?$/i);
+        if (m && m[1] !== undefined) r = parseInt(m[1], 10);
+      }
+      return r;
+    }).filter((r) => !isNaN(r))
+  );
+
+  let candidateRev = currentRev + 1;
+  while (existingRevs.has(candidateRev)) {
+    candidateRev++;
+  }
+
+  const nextRev = candidateRev;
+  const nextNo = `QTN-${seq}-${String(nextRev).padStart(2, '0')}`;
+
+  return { nextSeq: seq, nextRev, nextNo };
+}
+
 export async function duplicateQuotation(id) {
   const quote = await getQuotationById(id);
   if (!quote) throw new Error('Quotation not found');
@@ -345,7 +388,7 @@ export async function duplicateQuotation(id) {
 
   const duplicated = {
     ...quote,
-    logoData: null,
+    logoData: quote.logoData || DEFAULT_ZOOSH_LOGO,
     id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
     no: newNo,
     sequenceNumber: seq,

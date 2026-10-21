@@ -10,6 +10,7 @@ import {
   deleteQuotation,
   duplicateQuotation,
   getNextSequentialNumber,
+  getNextRevisionForQuote,
 } from './utils/storage';
 import { downloadPDF } from './utils/pdfGenerator';
 import { DEFAULT_ZOOSH_LOGO } from './utils/logo';
@@ -156,6 +157,24 @@ export default function App() {
     } catch (err) {
       console.error('Failed to save quotation:', err);
       addToast('Error saving quotation', 'error');
+    }
+  };
+
+  const handleEdit = async (quote) => {
+    try {
+      const fullQuote = await getQuotationById(quote.id);
+      const { nextSeq, nextRev, nextNo } = getNextRevisionForQuote(fullQuote, quotations);
+      
+      setActiveQuote({
+        ...fullQuote,
+        sequenceNumber: nextSeq,
+        revision: nextRev,
+        no: nextNo,
+      });
+      setCurrentView('form');
+    } catch (err) {
+      console.error('Failed to load full quotation details:', err);
+      addToast('Error loading quotation details', 'error');
     }
   };
 
@@ -308,16 +327,7 @@ export default function App() {
               addToast('Error loading quotation details', 'error');
             }
           }}
-          onEdit={async (quote) => {
-            try {
-              const fullQuote = await getQuotationById(quote.id);
-              setActiveQuote(fullQuote);
-              setCurrentView('form');
-            } catch (err) {
-              console.error('Failed to load full quotation details:', err);
-              addToast('Error loading quotation details', 'error');
-            }
-          }}
+          onEdit={handleEdit}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
           onDownloadPDF={(quote) => setDownloadModalQuote(quote)}
@@ -341,6 +351,7 @@ export default function App() {
           <QuotationPreview
             quote={activeQuote}
             onBack={() => setCurrentView('dashboard')}
+            onEdit={handleEdit}
             onDownloadPDF={handleDownloadPDF}
           />
         </div>

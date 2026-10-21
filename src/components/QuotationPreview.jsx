@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { currSymbol, fmtNum, numberToWords } from '../utils/currency';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 
-export default function QuotationPreview({ quote, onBack, onDownloadPDF }) {
+export default function QuotationPreview({ quote, onBack, onEdit, onDownloadPDF }) {
   const [showLogo, setShowLogo] = useState(true);
 
   const isGstRemoved = Boolean(quote.taxPricing?.removeGst) || 
@@ -34,9 +34,9 @@ export default function QuotationPreview({ quote, onBack, onDownloadPDF }) {
 
   return (
     <div>
-      {/* Consolidated Toolbar: Back + Preview Toggle + Only Two Download Options */}
+      {/* Consolidated Toolbar: Back + Edit + Preview Toggle + Only Two Download Options */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {onBack && (
             <button
               type="button"
@@ -45,6 +45,16 @@ export default function QuotationPreview({ quote, onBack, onDownloadPDF }) {
               onClick={onBack}
             >
               ← Back to Dashboard
+            </button>
+          )}
+          {onEdit && (
+            <button
+              type="button"
+              className="nav-btn outline"
+              style={{ background: '#fff', color: 'var(--black)', padding: '8px 16px', fontSize: '11px', border: '1px solid var(--border)' }}
+              onClick={() => onEdit(quote)}
+            >
+              ✏ Edit Quotation
             </button>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
