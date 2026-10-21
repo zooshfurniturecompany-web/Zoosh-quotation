@@ -12,6 +12,7 @@ import ReviewSyncModal from './ReviewSyncModal';
 import ReviewToolbar, { TOOLS } from './ReviewToolbar';
 import AnnotationCanvas from './AnnotationCanvas';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
+import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
 export default function ReviewSheet({
   series: initialSeries,
@@ -23,6 +24,7 @@ export default function ReviewSheet({
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exportingWord, setExportingWord] = useState(false);
   const [viewingSnapshotNo, setViewingSnapshotNo] = useState(null); // null means active doc
 
   // Microsoft Word Interface State
@@ -241,6 +243,40 @@ export default function ReviewSheet({
       window.removeEventListener('keydown', handleGlobalKeyDown);
     };
   }, [isViewingSnapshot]);
+
+  // Export all products to Microsoft Word (.docx)
+  const handleExportAllWord = async () => {
+    const targetDoc = displayedDoc || doc;
+    if (!targetDoc) return;
+    setExportingWord(true);
+    addToast('Generating editable Microsoft Word document with high-res annotations...', 'info');
+    try {
+      await exportFullReviewWord(targetDoc, orientation);
+      addToast('Downloaded complete Word Review Sheet (.docx)', 'success');
+    } catch (err) {
+      console.error('Word export failed:', err);
+      addToast('Failed to export Word document: ' + err.message, 'error');
+    } finally {
+      setExportingWord(false);
+    }
+  };
+
+  // Export a single product preview to Microsoft Word (.docx)
+  const handleExportSingleProductWord = async (product, pIdx) => {
+    const targetDoc = displayedDoc || doc;
+    if (!targetDoc || !product) return;
+    setExportingWord(true);
+    addToast(`Generating editable Word document for "${product.name}"...`, 'info');
+    try {
+      await exportSingleProductWord(targetDoc, product, pIdx, orientation);
+      addToast(`Downloaded "${product.name}" Word preview (.docx)`, 'success');
+    } catch (err) {
+      console.error('Word export failed:', err);
+      addToast('Failed to export Word preview: ' + err.message, 'error');
+    } finally {
+      setExportingWord(false);
+    }
+  };
 
   // Switch to an earlier snapshot
   const handleSelectSnapshot = (sheetNo) => {
@@ -603,6 +639,29 @@ export default function ReviewSheet({
             }}
           >
             🖨 Print / PDF
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportAllWord}
+            disabled={exportingWord}
+            style={{
+              background: '#107c41',
+              color: '#ffffff',
+              border: 'none',
+              padding: '5px 14px',
+              fontSize: '11px',
+              fontWeight: 700,
+              borderRadius: '3px',
+              cursor: exportingWord ? 'wait' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            title="Download editable Microsoft Word document (.docx) containing all product reviews"
+          >
+            <span>📄</span>
+            <span>{exportingWord ? 'Exporting Word...' : 'Download Word (.docx)'}</span>
           </button>
         </div>
       </div>
@@ -1038,6 +1097,30 @@ export default function ReviewSheet({
                         {isApproved ? 'Revoke Approval' : '✓ Approve'}
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      className="no-print"
+                      onClick={() => handleExportSingleProductWord(product, pIdx)}
+                      disabled={exportingWord}
+                      style={{
+                        background: '#107c41',
+                        color: '#ffffff',
+                        border: 'none',
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        padding: '4px 10px',
+                        borderRadius: '2px',
+                        cursor: exportingWord ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                      title={`Download editable Microsoft Word document (.docx) for ${product.name}`}
+                    >
+                      <span>📥</span>
+                      <span>Word (.docx)</span>
+                    </button>
                   </div>
                 </div>
 
