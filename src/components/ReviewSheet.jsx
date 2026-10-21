@@ -1786,51 +1786,41 @@ export default function ReviewSheet({
                           />
                         </WordStyleImageFrame>
 
-                        {/* Additional Images Cells: Included directly in the main column under Picture 1 */}
+                        {/* All Additional Images: Seamlessly included directly in the same main reference image column */}
                         {additionalImgs.length > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 700, color: '#333' }}>
-                                ADDITIONAL VIEWS ({additionalImgs.length} attached views):
-                              </div>
-                              <div style={{ fontSize: '10px', color: '#666' }}>
-                                Click photo to crop, resize or move
-                              </div>
-                            </div>
-                            <div
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: additionalImgs.length === 1 ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-                                gap: '10px',
-                                alignContent: 'start',
-                              }}
-                            >
-                              {additionalImgs.slice(0, 4).map((img, addIdx) => (
-                                <WordStyleImageFrame
-                                  key={img.id}
-                                  imageSrc={img.url}
-                                  originalSrc={img.originalUrl}
-                                  label={img.label || `Picture - ${addIdx + 2}`}
-                                  panX={img.pan?.x ?? 50}
-                                  panY={img.pan?.y ?? 50}
-                                  posX={img.posX}
-                                  posY={img.posY}
-                                  zoom={img.zoom ?? 1}
-                                  scale={img.scale ?? 1}
-                                  fit={imageFitModes[`add-${img.id}`] || 'cover'}
-                                  isLocked={img.locked}
-                                  readOnly={isViewingSnapshot}
-                                  height="220px"
-                                  onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
-                                  onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
-                                  onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
-                                  onToggleLock={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                  onRemove={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                  onMoveEarlier={addIdx > 0 ? () => handleReorderAdditionalImage(product.id, img.id, 'prev') : null}
-                                  onMoveLater={addIdx < additionalImgs.length - 1 ? () => handleReorderAdditionalImage(product.id, img.id, 'next') : null}
-                                />
-                              ))}
-                            </div>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: additionalImgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
+                              gap: '10px',
+                              alignContent: 'start',
+                            }}
+                          >
+                            {additionalImgs.slice(0, 4).map((img, addIdx) => (
+                              <WordStyleImageFrame
+                                key={img.id}
+                                imageSrc={img.url}
+                                originalSrc={img.originalUrl}
+                                label={img.label || `PICTURE - ${addIdx + 2}`}
+                                panX={img.pan?.x ?? 50}
+                                panY={img.pan?.y ?? 50}
+                                posX={img.posX}
+                                posY={img.posY}
+                                zoom={img.zoom ?? 1}
+                                scale={img.scale ?? 1}
+                                fit={imageFitModes[`add-${img.id}`] || 'cover'}
+                                isLocked={img.locked}
+                                readOnly={isViewingSnapshot}
+                                height={isPortrait ? '190px' : '200px'}
+                                onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
+                                onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
+                                onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
+                                onToggleLock={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                onRemove={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                onMoveEarlier={addIdx > 0 ? () => handleReorderAdditionalImage(product.id, img.id, 'prev') : null}
+                                onMoveLater={addIdx < additionalImgs.length - 1 ? () => handleReorderAdditionalImage(product.id, img.id, 'next') : null}
+                              />
+                            ))}
                           </div>
                         )}
                       </div>

@@ -335,7 +335,7 @@ export default function WordStyleImageFrame({
         position: 'relative',
         width: '100%',
         height: height || '100%',
-        minHeight: '220px',
+        minHeight: height ? 'auto' : '180px',
         background: '#ffffff',
         boxSizing: 'border-box',
         overflow: 'hidden',
@@ -345,6 +345,55 @@ export default function WordStyleImageFrame({
         ...style,
       }}
     >
+      {/* Photo Label Badge in Top-Left */}
+      {label && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '6px',
+            left: '6px',
+            background: 'rgba(17, 24, 39, 0.78)',
+            color: '#ffffff',
+            fontSize: '9px',
+            fontWeight: 700,
+            padding: '2px 7px',
+            borderRadius: '2px',
+            zIndex: 25,
+            pointerEvents: 'none',
+            letterSpacing: '0.03em',
+          }}
+        >
+          {label}
+        </div>
+      )}
+
+      {/* Quick Delete button in Top-Right if removable */}
+      {onRemove && !readOnly && !isLocked && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          style={{
+            position: 'absolute',
+            top: '6px',
+            right: '6px',
+            background: 'rgba(239, 68, 68, 0.9)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '2px',
+            padding: '2px 6px',
+            fontSize: '9px',
+            cursor: 'pointer',
+            zIndex: 25,
+            fontWeight: 700,
+          }}
+          title="Delete image"
+        >
+          ✕ Delete
+        </button>
+      )}
       {/* 
         NO FLOATING POPUP BAR / WINDOWS AS STRICTLY REQUESTED BY USER.
         Interaction is 100% direct on the image:
