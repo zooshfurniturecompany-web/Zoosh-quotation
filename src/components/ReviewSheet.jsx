@@ -14,6 +14,7 @@ import AnnotationCanvas from './AnnotationCanvas';
 import CropModal from './CropModal';
 import InlineImageCropper from './InlineImageCropper';
 import WordStyleImageFrame from './WordStyleImageFrame';
+import UnifiedReferenceCanvas from './UnifiedReferenceCanvas';
 import { DEFAULT_ZOOSH_LOGO } from '../utils/logo';
 import { exportSingleProductWord, exportFullReviewWord } from '../utils/wordExport';
 
@@ -1744,109 +1745,23 @@ export default function ReviewSheet({
                         minWidth: 0,
                       }}
                     >
-                      {/* Primary Reference Image Workspace & Additional Images in the Main Reference Column */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        {/* Dominant Primary Reference Image Card with Word-Style 8-handle Crop & Move */}
-                        <WordStyleImageFrame
-                          imageSrc={product.photo}
-                          originalSrc={product.originalPhoto}
-                          label="PICTURE - 1: QUOTATION REFERENCE & PRODUCTION DRAWING"
-                          panX={product.photoPan?.x ?? 50}
-                          panY={product.photoPan?.y ?? 50}
-                          posX={product.photoPosX}
-                          posY={product.photoPosY}
-                          zoom={product.photoZoom ?? 1}
-                          scale={product.photoScale ?? 1}
-                          fit={imageFitModes[`pri-${product.id}`] || 'cover'}
-                          isLocked={product.imageLocked}
-                          readOnly={isViewingSnapshot}
-                          activeTool={activeTool}
-                          height={isPortrait ? '340px' : '360px'}
-                          onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'primary', null, data)}
-                          onResetOriginal={() => handleResetCrop(product.id, 'primary')}
-                          onToggleFit={() => handleToggleImageFit(`pri-${product.id}`)}
-                          onToggleLock={() => handleToggleImageLock(product.id, 'primary')}
-                        >
-                          <AnnotationCanvas
-                            imageSrc={product.photo}
-                            annotations={product.annotations || []}
-                            onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                            activeTool={activeTool}
-                            activeColor={activeColor}
-                            activeStroke={activeStroke}
-                            isLocked={product.imageLocked}
-                            isReadOnly={isViewingSnapshot}
-                            onApproveProduct={() => {
-                              if (!isApproved) handleToggleApproval(product);
-                            }}
-                            fit={imageFitModes[`pri-${product.id}`] || 'cover'}
-                            panX={product.photoPan?.x ?? 50}
-                            panY={product.photoPan?.y ?? 50}
-                            zoom={product.photoZoom ?? 1}
-                          />
-                        </WordStyleImageFrame>
-
-                        {/* All Additional Images: Seamlessly included directly in the same main reference image column */}
-                        {additionalImgs.length > 0 && (
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: additionalImgs.length === 1 ? '1fr' : 'repeat(2, 1fr)',
-                              gap: '10px',
-                              alignContent: 'start',
-                            }}
-                          >
-                            {additionalImgs.slice(0, 4).map((img, addIdx) => (
-                              <WordStyleImageFrame
-                                key={img.id}
-                                imageSrc={img.url}
-                                originalSrc={img.originalUrl}
-                                label={img.label || `PICTURE - ${addIdx + 2}`}
-                                panX={img.pan?.x ?? 50}
-                                panY={img.pan?.y ?? 50}
-                                posX={img.posX}
-                                posY={img.posY}
-                                zoom={img.zoom ?? 1}
-                                scale={img.scale ?? 1}
-                                fit={imageFitModes[`add-${img.id}`] || 'cover'}
-                                isLocked={img.locked}
-                                readOnly={isViewingSnapshot}
-                                height={isPortrait ? '190px' : '200px'}
-                                onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'additional', img.id, data)}
-                                onResetOriginal={() => handleResetCrop(product.id, 'additional', img.id)}
-                                onToggleFit={() => handleToggleImageFit(`add-${img.id}`)}
-                                onToggleLock={() => handleToggleImageLock(product.id, 'additional', img.id)}
-                                onRemove={() => handleRemoveAdditionalImage(product.id, img.id)}
-                                onMoveEarlier={addIdx > 0 ? () => handleReorderAdditionalImage(product.id, img.id, 'prev') : null}
-                                onMoveLater={addIdx < additionalImgs.length - 1 ? () => handleReorderAdditionalImage(product.id, img.id, 'next') : null}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Upload New Additional Image control (Hidden in print) */}
-                      {!isViewingSnapshot && (
-                        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '2px' }}>
-                          <label
-                            style={{
-                              fontSize: '10px',
-                              color: '#2b579a',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                            }}
-                          >
-                            + Upload Additional Image (Picture - {additionalImgs.length + 2})
-                            <input
-                              type="file"
-                              accept="image/*"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleAddAdditionalImage(product.id, e)}
-                            />
-                          </label>
-                        </div>
-                      )}
+                      {/* Unified Reference Canvas: Picture 1 and all additional images share this single canvas container */}
+                      <UnifiedReferenceCanvas
+                        product={product}
+                        activeTool={activeTool}
+                        activeColor={activeColor}
+                        activeStroke={activeStroke}
+                        isApproved={isApproved}
+                        onApproveProduct={() => {
+                          if (!isApproved) handleToggleApproval(product);
+                        }}
+                        isLocked={isViewingSnapshot}
+                        readOnly={isViewingSnapshot}
+                        onUpdateProduct={handleProductUpdate}
+                        onAddAdditionalImage={handleAddAdditionalImage}
+                        onRemoveAdditionalImage={handleRemoveAdditionalImage}
+                        height={isPortrait ? '360px' : '390px'}
+                      />
 
                       {/* Selected Materials Table (Exact Reference Image 1 Layout) */}
                       <div>
