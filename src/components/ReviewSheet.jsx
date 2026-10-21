@@ -813,12 +813,12 @@ export default function ReviewSheet({
                     </div>
                   </div>
 
-                  {/* Product Body: Two Columns (Images/Annotations on left, Specs/Notes/Fabric on right) */}
+                  {/* Product Body: Two Columns (Images/Annotations on left, Notes/Fabric on right) */}
                   <div
                     style={{
                       padding: '20px',
                       display: 'grid',
-                      gridTemplateColumns: '1fr 1.1fr',
+                      gridTemplateColumns: '1.15fr 1fr',
                       gap: '24px',
                     }}
                   >
@@ -1059,29 +1059,8 @@ export default function ReviewSheet({
                       )}
                     </div>
 
-                    {/* RIGHT COLUMN: Specifications, Fabric Table, Customer Notes */}
+                    {/* RIGHT COLUMN: Fabric Table & Customer Notes */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {/* Specifications / Design Information */}
-                      <div>
-                        <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)' }}>
-                          Design & Technical Specifications
-                        </span>
-                        <div
-                          style={{
-                            fontSize: '12px',
-                            color: 'var(--near-black)',
-                            lineHeight: 1.6,
-                            marginTop: '4px',
-                            whiteSpace: 'pre-line',
-                            background: 'var(--near-white)',
-                            padding: '10px 14px',
-                            borderRadius: '2px',
-                            border: '1px solid var(--border)',
-                          }}
-                        >
-                          {product.spec || 'No additional specifications provided in quotation.'}
-                        </div>
-                      </div>
 
                       {/* Fabric Selection Table */}
                       <div>
