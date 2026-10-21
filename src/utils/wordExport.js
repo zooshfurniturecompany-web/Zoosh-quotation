@@ -408,10 +408,10 @@ export async function renderProductCanvasToImage(product, targetWidth = 1000, ta
 }
 
 /**
- * Build Word Table for Selected Fabric Details
+ * Build Word Table for Selected Fabric Details (Exact 7-column Reference Image 1 Layout)
  */
 function buildFabricDetailsWordTable(fabricSelections = []) {
-  const borderGrey = { style: BorderStyle.SINGLE, size: 4, color: 'D1D5DB' };
+  const borderGrey = { style: BorderStyle.SINGLE, size: 4, color: '111111' };
   const cellBorders = {
     top: borderGrey,
     bottom: borderGrey,
@@ -419,17 +419,20 @@ function buildFabricDetailsWordTable(fabricSelections = []) {
     right: borderGrey,
   };
 
-  // Header row
+  // Header row - 7 Columns matching Reference Image 1
+  const headerCols = [
+    { text: 'Sl. No.', width: 8 },
+    { text: 'Part Name', width: 18 },
+    { text: 'Specification', width: 20 },
+    { text: 'Code', width: 12 },
+    { text: 'Reference Image', width: 18 },
+    { text: 'Qty', width: 10 },
+    { text: 'Remark', width: 14 },
+  ];
+
   const headerRow = new TableRow({
     tableHeader: true,
-    children: [
-      { text: 'Sl.', width: 6 },
-      { text: 'Part Name', width: 22 },
-      { text: 'Brand', width: 18 },
-      { text: 'Catalogue Code', width: 22 },
-      { text: 'Total Meter', width: 14 },
-      { text: 'Remark', width: 18 },
-    ].map((col) =>
+    children: headerCols.map((col) =>
       new TableCell({
         width: { size: col.width, type: WidthType.PERCENTAGE },
         shading: { fill: 'F3F4F6', type: ShadingType.CLEAR },
@@ -457,7 +460,7 @@ function buildFabricDetailsWordTable(fabricSelections = []) {
       new TableRow({
         children: [
           new TableCell({
-            columnSpan: 6,
+            columnSpan: 7,
             borders: cellBorders,
             children: [
               new Paragraph({
@@ -478,32 +481,77 @@ function buildFabricDetailsWordTable(fabricSelections = []) {
     );
   } else {
     fabricSelections.forEach((fab, idx) => {
+      // Swatch cell handling
+      let swatchParagraph;
+      try {
+        if (fab.refImage && fab.refImage.startsWith('data:image')) {
+          swatchParagraph = new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new ImageRun({
+                data: base64ToUint8Array(fab.refImage),
+                transformation: { width: 44, height: 28 },
+              }),
+            ],
+          });
+        } else {
+          swatchParagraph = new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({
+                text: '—',
+                size: 17,
+                color: '888888',
+              }),
+            ],
+          });
+        }
+      } catch (err) {
+        swatchParagraph = new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new TextRun({ text: '—', size: 17, color: '888888' })],
+        });
+      }
+
       bodyRows.push(
         new TableRow({
           children: [
-            String(idx + 1),
-            fab.partName || fab.location || '—',
-            fab.brand || '—',
-            fab.catalogueCode || fab.code || '—',
-            fab.totalMeter || fab.yardage || '—',
-            fab.remark || '—',
-          ].map((val, cellIdx) =>
+            // 1. Sl. No.
             new TableCell({
               borders: cellBorders,
-              children: [
-                new Paragraph({
-                  alignment: cellIdx === 0 ? AlignmentType.CENTER : AlignmentType.LEFT,
-                  children: [
-                    new TextRun({
-                      text: val,
-                      size: 17,
-                      color: '222222',
-                    }),
-                  ],
-                }),
-              ],
-            })
-          ),
+              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 17, bold: true })] })],
+            }),
+            // 2. Part Name
+            new TableCell({
+              borders: cellBorders,
+              children: [new Paragraph({ children: [new TextRun({ text: fab.partName || fab.location || '—', size: 17 })] })],
+            }),
+            // 3. Specification
+            new TableCell({
+              borders: cellBorders,
+              children: [new Paragraph({ children: [new TextRun({ text: fab.specification || fab.brand || '—', size: 17 })] })],
+            }),
+            // 4. Code
+            new TableCell({
+              borders: cellBorders,
+              children: [new Paragraph({ children: [new TextRun({ text: fab.code || fab.catalogueCode || '—', size: 17 })] })],
+            }),
+            // 5. Reference Image
+            new TableCell({
+              borders: cellBorders,
+              children: [swatchParagraph],
+            }),
+            // 6. Qty
+            new TableCell({
+              borders: cellBorders,
+              children: [new Paragraph({ children: [new TextRun({ text: fab.qty || fab.totalMeter || fab.yardage || '—', size: 17 })] })],
+            }),
+            // 7. Remark
+            new TableCell({
+              borders: cellBorders,
+              children: [new Paragraph({ children: [new TextRun({ text: fab.remark || '—', size: 17 })] })],
+            }),
+          ],
         })
       );
     });
@@ -617,7 +665,8 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       });
     }
 
-    const rightChildren = [
+    // Add Fabric Details Table to left column
+    leftChildren.push(
       new Paragraph({
         children: [
           new TextRun({
@@ -627,25 +676,131 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
             color: '111111',
           }),
         ],
-        spacing: { after: 100 },
+        spacing: { before: 100, after: 80 },
       }),
       buildFabricDetailsWordTable(product.fabricSelections),
-      new Paragraph({
-        text: '',
-        spacing: { after: 180 },
+      new Paragraph({ text: '', spacing: { after: 120 } })
+    );
+
+    // Add Technical Specifications (Client Input & ZOOSH Proposed Spec) to left column
+    const blueBorder = { style: BorderStyle.SINGLE, size: 6, color: '2B579A' };
+    const greenBorder = { style: BorderStyle.SINGLE, size: 6, color: '27AE60' };
+
+    leftChildren.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: borderNoneObj,
+        rows: [
+          new TableRow({
+            children: [
+              // Client Input Box (Blue)
+              new TableCell({
+                width: { size: 50, type: WidthType.PERCENTAGE },
+                borders: { top: blueBorder, bottom: blueBorder, left: blueBorder, right: blueBorder },
+                shading: { fill: 'F4F7FB', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: 'CLIENT INPUT (SITE MEASUREMENTS)',
+                        bold: true,
+                        size: 16,
+                        color: '2B579A',
+                      }),
+                    ],
+                    spacing: { after: 60 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Dining counter height: ', size: 15, color: '444444' }),
+                      new TextRun({ text: product.clientInputs?.counterHeight || '______ cm', bold: true, size: 15, color: '111111' }),
+                    ],
+                    spacing: { after: 40 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Available clearance: ', size: 15, color: '444444' }),
+                      new TextRun({ text: product.clientInputs?.clearance || '______ cm', bold: true, size: 15, color: '111111' }),
+                    ],
+                    spacing: { after: 40 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Required site measurement: ', size: 15, color: '444444' }),
+                      new TextRun({ text: product.clientInputs?.siteMeasurement || '______ cm', bold: true, size: 15, color: '111111' }),
+                    ],
+                  }),
+                ],
+              }),
+              // Proposed Spec Box (Green)
+              new TableCell({
+                width: { size: 50, type: WidthType.PERCENTAGE },
+                borders: { top: greenBorder, bottom: greenBorder, left: greenBorder, right: greenBorder },
+                shading: { fill: 'F5FAF6', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: 'ZOOSH PROPOSED SPECIFICATION',
+                        bold: true,
+                        size: 16,
+                        color: '27AE60',
+                      }),
+                    ],
+                    spacing: { after: 60 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Proposed overall height: ', size: 15, color: '444444' }),
+                      new TextRun({ text: '75 cm', bold: true, size: 15, color: '111111' }),
+                    ],
+                    spacing: { after: 40 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Proposed seat height: ', size: 15, color: '444444' }),
+                      new TextRun({ text: '65 cm', bold: true, size: 15, color: '111111' }),
+                    ],
+                    spacing: { after: 40 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Internal frame: ', size: 15, color: '444444' }),
+                      new TextRun({ text: 'Treated Solid Teak Wood', bold: true, size: 15, color: '111111' }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
       }),
+      new Paragraph({ text: '', spacing: { after: 120 } })
+    );
+
+    // Add Customer Note Area to left column
+    leftChildren.push(
       new Paragraph({
         children: [
           new TextRun({
-            text: 'CUSTOMER NOTE (EDITABLE CLIENT FEEDBACK & FINISH REQUIREMENTS)',
+            text: 'CUSTOMER NOTE',
             bold: true,
             size: 18,
             color: '111111',
           }),
         ],
-        spacing: { after: 80 },
+        spacing: { after: 40 },
       }),
-      // Designated Customer Note Area: A styled Word box ready for direct client text editing!
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: 'Designated editable note area for customer feedback & finish requirements:',
+            size: 15,
+            color: '666666',
+          }),
+        ],
+        spacing: { after: 60 },
+      }),
       new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [
@@ -671,17 +826,80 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
                         color: product.customerNotes ? '111111' : '777777',
                       }),
                     ],
-                    spacing: { before: 120, after: 120 },
+                    spacing: { before: 100, after: 100 },
                   }),
                 ],
               }),
             ],
           }),
         ],
+      })
+    );
+
+    // Build Right Column: Dedicated CLIENT REMARKS Column (Reference Image 2)
+    const rightRemarksChildren = [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: 'CLIENT REMARKS',
+            bold: true,
+            underline: {},
+            size: 20,
+            color: '111111',
+          }),
+        ],
+        spacing: { after: 40 },
+      }),
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            text: `Revision : ${product.remarksRevision || '01'}`,
+            bold: true,
+            underline: {},
+            size: 17,
+            color: '111111',
+          }),
+        ],
+        spacing: { after: 120 },
       }),
     ];
 
-    // Main 2-column table layout
+    if (product.clientRemarks && product.clientRemarks.length > 0) {
+      product.clientRemarks.forEach((rem, rIdx) => {
+        rightRemarksChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${rIdx + 1}.  ${rem}`,
+                size: 17,
+                color: '111111',
+              }),
+            ],
+            spacing: { after: 80 },
+          })
+        );
+      });
+    } else {
+      // 4 placeholder lines for client handwriting or typing in Word
+      for (let ln = 1; ln <= 4; ln++) {
+        rightRemarksChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${ln}.  ____________________________________`,
+                size: 17,
+                color: '888888',
+              }),
+            ],
+            spacing: { after: 100 },
+          })
+        );
+      }
+    }
+
+    // Main 2-column table layout with vertical divider
     const contentTable = new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       borders: borderNoneObj,
@@ -689,14 +907,105 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         new TableRow({
           children: [
             new TableCell({
-              width: { size: isPortrait ? 100 : 56, type: WidthType.PERCENTAGE },
+              width: { size: isPortrait ? 100 : 70, type: WidthType.PERCENTAGE },
               borders: borderNoneObj,
               children: leftChildren,
             }),
             new TableCell({
-              width: { size: isPortrait ? 100 : 44, type: WidthType.PERCENTAGE },
-              borders: borderNoneObj,
-              children: rightChildren,
+              width: { size: isPortrait ? 100 : 30, type: WidthType.PERCENTAGE },
+              borders: {
+                ...borderNoneObj,
+                left: { style: BorderStyle.SINGLE, size: 8, color: '111111' },
+              },
+              children: rightRemarksChildren,
+            }),
+          ],
+        }),
+      ],
+    });
+
+    // Top Product Information Box (Exact Reference Image 2 Layout)
+    const infoBorder = { style: BorderStyle.SINGLE, size: 6, color: '111111' };
+    const topInfoTable = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: {
+        top: infoBorder,
+        bottom: infoBorder,
+        left: infoBorder,
+        right: infoBorder,
+        insideHorizontal: infoBorder,
+        insideVertical: infoBorder,
+      },
+      rows: [
+        new TableRow({
+          children: [
+            // Col 1: Sl. No. & ITEM
+            new TableCell({
+              width: { size: 38, type: WidthType.PERCENTAGE },
+              borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'Sl. No. : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${itemNum}`, size: 18 }),
+                  ],
+                  spacing: { after: 30 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'ITEM : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${product.name.toUpperCase()}`, bold: true, size: 18 }),
+                  ],
+                }),
+              ],
+            }),
+            // Col 2: PRODUCT ID & QUANTITY
+            new TableCell({
+              width: { size: 34, type: WidthType.PERCENTAGE },
+              borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'PRODUCT ID : ', bold: true, size: 18 }),
+                    new TextRun({
+                      text: pid,
+                      bold: true,
+                      size: 18,
+                      color: isApproved ? '27AE60' : 'D97706',
+                    }),
+                  ],
+                  spacing: { after: 30 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'QUANTITY : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${product.qty} ${product.utype || 'nos'}`, size: 18 }),
+                  ],
+                }),
+              ],
+            }),
+            // Col 3: Revision & Last Edited
+            new TableCell({
+              width: { size: 28, type: WidthType.PERCENTAGE },
+              borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+              shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'Revision : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${doc.sheetNoFormatted || '01'}`, bold: true, size: 18 }),
+                  ],
+                  spacing: { after: 30 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({ text: 'Last Edited : ', bold: true, size: 18 }),
+                    new TextRun({ text: `${new Date().toLocaleDateString('en-IN')}`, size: 18 }),
+                  ],
+                }),
+              ],
             }),
           ],
         }),
@@ -724,57 +1033,15 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         spacing: { after: 120 },
       }),
 
-      // Product Title & Approval Banner
-      new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({
-                shading: { fill: 'F3F4F6', type: ShadingType.CLEAR },
-                borders: {
-                  top: { style: BorderStyle.SINGLE, size: 6, color: 'E5E7EB' },
-                  bottom: { style: BorderStyle.SINGLE, size: 6, color: 'E5E7EB' },
-                  left: { style: BorderStyle.SINGLE, size: 6, color: 'E5E7EB' },
-                  right: { style: BorderStyle.SINGLE, size: 6, color: 'E5E7EB' },
-                },
-                children: [
-                  new Paragraph({
-                    children: [
-                      new TextRun({
-                        text: `${itemNum}. ${product.name}`,
-                        bold: true,
-                        size: 24, // 12pt
-                        color: '111111',
-                      }),
-                      new TextRun({
-                        text: `   [Qty: ${product.qty} ${product.utype || 'nos'}]`,
-                        bold: true,
-                        size: 18,
-                        color: '333333',
-                      }),
-                      new TextRun({
-                        text: isApproved ? `\t✓ APPROVED [${pid}]` : `\t⏳ PENDING PRODUCTION APPROVAL`,
-                        bold: true,
-                        size: 18,
-                        color: isApproved ? '2E7D32' : 'D97706',
-                      }),
-                    ],
-                    spacing: { before: 80, after: 80 },
-                  }),
-                ],
-              }),
-            ],
-          }),
-        ],
-      }),
+      // Top Product Information Box (Exact Reference Image 2 Layout)
+      topInfoTable,
 
       new Paragraph({
         text: '',
         spacing: { after: 140 },
       }),
 
-      // 2-Column Product Content
+      // 2-Column Product Content (Left Image/Fabric/Specs & Right Client Remarks)
       contentTable,
 
       // Footer Signatures & Approval Line

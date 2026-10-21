@@ -355,7 +355,24 @@ export default function ReviewSheet({
     });
   };
 
-  // Toggle production approval and assign/revoke Product ID
+  // Derive initials prefix from client name (Section 10: e.g. "Ravi Varma" -> "RVA")
+  const getClientPrefix = (clientName) => {
+    if (!clientName) return 'ZSH';
+    const parts = clientName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const first = parts[0][0].toUpperCase();
+      const lastWord = parts[parts.length - 1];
+      const lastFirst = lastWord[0].toUpperCase();
+      const lastEnd = lastWord[lastWord.length - 1].toUpperCase();
+      return `${first}${lastFirst}${lastEnd}`;
+    } else if (parts.length === 1 && parts[0].length >= 3) {
+      const w = parts[0];
+      return `${w[0]}${w[1]}${w[w.length - 1]}`.toUpperCase();
+    }
+    return 'ZSH';
+  };
+
+  // Toggle production approval and assign/revoke Product ID (Section 10)
   const handleToggleApproval = (product) => {
     if (isViewingSnapshot) return;
     const isCurrentlyApproved = product.approvalStatus === 'Approved';
@@ -370,7 +387,9 @@ export default function ReviewSheet({
       addToast(`Production approval revoked for "${product.name}"`, 'info');
     } else {
       // Approve and generate Product ID
-      const newPid = `PID-${doc.series}-${String(product.itemIndex || 1).padStart(2, '0')}`;
+      const prefix = getClientPrefix(doc?.client?.name);
+      const seqNum = 140 + (product.itemIndex || 1) - 1;
+      const newPid = `${prefix} ${seqNum}`;
       handleProductUpdate(product.id, {
         approvalStatus: 'Approved',
         productId: newPid,
@@ -381,7 +400,7 @@ export default function ReviewSheet({
     }
   };
 
-  // Fabric selection table management (Section 8: Sl.no., Part Name, Brand, Catalogue Code, Reference Image, Total Meter, Remark)
+  // Fabric selection table management (Reference Image 1: Sl. No., Part Name, Specification, Code, Reference Image, Qty, Remark)
   const handleAddFabricRow = (productId) => {
     if (isViewingSnapshot) return;
     const prod = doc.products.find((p) => p.id === productId);
@@ -390,12 +409,12 @@ export default function ReviewSheet({
     const newRow = {
       id: `fab-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
       slNo: currentRows.length + 1,
-      partName: 'Main Body',
-      brand: 'Sarom',
-      catalogueCode: 'Velvet #101',
+      partName: currentRows.length === 0 ? 'Seating' : currentRows.length === 1 ? 'Back rest' : 'Pillow',
+      specification: currentRows.length === 0 ? 'Sarom' : currentRows.length === 1 ? 'Fabio' : 'Am Fabric',
+      code: currentRows.length === 0 ? '241' : currentRows.length === 1 ? '526' : '3622',
       refImage: null,
-      totalMeter: '12 m',
-      remark: 'Client approved',
+      qty: currentRows.length === 0 ? '6 mtr' : currentRows.length === 1 ? '5 mtr' : '2 mtr',
+      remark: '',
     };
     handleProductUpdate(productId, {
       fabricSelections: [...currentRows, newRow],
@@ -412,12 +431,47 @@ export default function ReviewSheet({
     handleProductUpdate(productId, { fabricSelections: updated }, true);
   };
 
+  const handleFabricSwatchUpload = (productId, rowId, file) => {
+    if (!file || isViewingSnapshot) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      handleFabricFieldChange(productId, rowId, 'refImage', reader.result);
+      addToast('Uploaded fabric swatch thumbnail', 'success');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleRemoveFabricRow = (productId, rowId) => {
     if (isViewingSnapshot) return;
     const prod = doc.products.find((p) => p.id === productId);
     if (!prod) return;
     handleProductUpdate(productId, {
       fabricSelections: (prod.fabricSelections || []).filter((r) => r.id !== rowId),
+    });
+  };
+
+  // Client Remarks management (Reference Image 2 & Section 15/16)
+  const handleAddClientRemark = (productId, text) => {
+    if (isViewingSnapshot || !text.trim()) return;
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+    const currentList = prod.clientRemarks || [];
+    const currentRev = parseInt(prod.remarksRevision || '0', 10);
+    const nextRevStr = String(currentRev + 1).padStart(2, '0');
+    handleProductUpdate(productId, {
+      clientRemarks: [...currentList, text.trim()],
+      remarksRevision: nextRevStr,
+    });
+    addToast(`Added remark (Client Remarks Revision: ${nextRevStr})`, 'success');
+  };
+
+  const handleRemoveClientRemark = (productId, rIdx) => {
+    if (isViewingSnapshot) return;
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+    const currentList = prod.clientRemarks || [];
+    handleProductUpdate(productId, {
+      clientRemarks: currentList.filter((_, i) => i !== rIdx),
     });
   };
 
@@ -754,177 +808,105 @@ export default function ReviewSheet({
           }}
         >
           <div>
-            {/* Top Branding & Main Heading */}
-            <div style={{ borderBottom: '2px solid #111', paddingBottom: '24px', marginBottom: '32px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-serif)',
-                      fontSize: '32px',
-                      fontWeight: 700,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      color: '#111',
-                    }}
-                  >
-                    ZOOSH
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.15em',
-                      color: 'var(--gray)',
-                      marginTop: '2px',
-                    }}
-                  >
-                    Custom Furniture Company
-                  </div>
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-serif)',
-                      fontSize: '16px',
-                      fontWeight: 700,
-                      color: '#111',
-                      background: '#f8f9fa',
-                      border: '1px solid #e0e0e0',
-                      padding: '6px 14px',
-                      borderRadius: '2px',
-                      display: 'inline-block',
-                    }}
-                  >
-                    QTN-{doc.series} / REVIEW SHEET NO.: {displaySheetNo}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--gray)', marginTop: '4px' }}>
-                    Document No.: QTN-{doc.series} / REV-01
-                  </div>
-                </div>
-              </div>
-
+            {/* Boxed Header Container from Reference Image 3 */}
+            <div
+              style={{
+                border: '1.5px solid #111111',
+                padding: '28px 36px',
+                marginBottom: '40px',
+                background: '#ffffff',
+              }}
+            >
+              {/* Centered Underlined Title */}
               <h1
                 style={{
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: '28px',
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#111',
-                  margin: '28px 0 0',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: '24px',
+                  fontWeight: 800,
+                  textDecoration: 'underline',
                   textAlign: 'center',
+                  margin: '0 0 28px',
+                  color: '#111111',
+                  letterSpacing: '0.02em',
                 }}
               >
                 Product Review Sheet
               </h1>
-            </div>
 
-            {/* Quotation & Client Metadata Grid (Section 7) */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: '16px',
-                background: '#f8f9fa',
-                border: '1px solid #e0e0e0',
-                padding: '20px 24px',
-                borderRadius: '2px',
-                marginBottom: '36px',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--muted)' }}>
-                  Client Name
-                </span>
-                <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '2px' }}>
-                  {displayedDoc?.client?.name || '—'}
+              {/* 2-Column Grid inside Box */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1.2fr 1fr',
+                  gap: '12px 32px',
+                  fontSize: '13px',
+                  lineHeight: 1.8,
+                  color: '#111111',
+                }}
+              >
+                {/* Left Column */}
+                <div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <strong>Review on Quotation:</strong>
+                    <span>{displaySourceQuote || `QTN-${doc.series}- 01`}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <strong>Client Name:</strong>
+                    <span>{displayedDoc?.client?.name || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <strong>Contact No.:</strong>
+                    <span>{displayedDoc?.client?.phone || '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <strong>Place:</strong>
+                    <span>{displayedDoc?.client?.addr || '—'}</span>
+                  </div>
                 </div>
-                {displayedDoc?.client?.co && (
-                  <div style={{ fontSize: '12px', color: 'var(--gray)' }}>{displayedDoc.client.co}</div>
-                )}
-              </div>
 
-              <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--muted)' }}>
-                  Place / Delivery Location
-                </span>
-                <div style={{ fontSize: '14px', color: '#222', marginTop: '2px' }}>
-                  {displayedDoc?.client?.addr || '—'}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--muted)' }}>
-                  Contact Number
-                </span>
-                <div style={{ fontSize: '14px', color: '#222', marginTop: '2px' }}>
-                  {displayedDoc?.client?.phone || '—'}
-                </div>
-              </div>
-
-              <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--muted)' }}>
-                  Source Quotation Revision
-                </span>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: '#111', marginTop: '2px' }}>
-                  {displaySourceQuote}
+                {/* Right Column */}
+                <div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <strong>Review Sheet Revision -</strong>
+                    <span>{displaySheetNo}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <strong>Submitted on:</strong>
+                    <span>{new Date().toLocaleDateString('en-GB')}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <strong>Approved on:</strong>
+                    <span>{displayedDoc?.approvedAt ? new Date(displayedDoc.approvedAt).toLocaleDateString('en-GB') : '—'}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Complete Original Mandatory Order Specification Notice (Section 7) */}
-            <div
-              style={{
-                border: '1px solid #d1d5db',
-                borderRadius: '3px',
-                padding: '20px 24px',
-                background: '#fafafa',
-              }}
-            >
+            {/* Exact 3-Paragraph Mandatory Notice from Reference Image 3 */}
+            <div style={{ padding: '0 4px' }}>
               <h3
                 style={{
-                  fontFamily: 'var(--font-serif)',
+                  fontFamily: 'var(--font-sans)',
                   fontSize: '13px',
                   fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.06em',
-                  color: '#111',
-                  margin: '0 0 10px',
+                  margin: '0 0 16px',
+                  color: '#111111',
                 }}
               >
                 Important Note Regarding Your Furniture Order Specification
               </h3>
-              <ol
-                style={{
-                  margin: 0,
-                  paddingLeft: '18px',
-                  fontSize: '11px',
-                  lineHeight: 1.7,
-                  color: '#444',
-                }}
-              >
-                <li>
-                  This Product Review Sheet serves as the authoritative manufacturing specification document for all custom furniture pieces commissioned under the referenced quotation.
-                </li>
-                <li>
-                  All production annotations, dimension lines, joint callouts, and fabric details approved within this document supersede preliminary design representations and govern factory fabrication.
-                </li>
-                <li>
-                  Standard manufacturing tolerances of &plusmn;10 mm to &plusmn;20 mm apply to handcrafted solid timber frames, cane webbing, hand-upholstered contours, and cushioning foam layers.
-                </li>
-                <li>
-                  Reference images indicate aesthetic intent, proportions, and detailing. Natural wood grain, cane textures, veneer figures, and fabric batch dye-lots inherently feature organic variations.
-                </li>
-                <li>
-                  Any modification to dimensions, frame structure, internal foam density, or upholstery fabric requested after production approval has been authorized will require a formal revision, affecting pricing and delivery schedules.
-                </li>
-                <li>
-                  Production approval becomes legally binding upon verification by the Production Manager and Client Signatory.
-                </li>
-              </ol>
+
+              <div style={{ fontSize: '12px', lineHeight: 1.8, color: '#222222', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <p style={{ margin: 0 }}>
+                  Please review the product details listed below carefully. If you have any changes or suggestions, kindly add your notes directly to the respective items. Based on your feedback, we will finalize the quotation for your approval before starting production.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Please note that all production documents and drawings will be generated based entirely on this review note. Consequently, our factory cannot accept responsibility for any design or technical details not explicitly specified in this final revision.
+                </p>
+                <p style={{ margin: 0 }}>
+                  Furthermore, this process confirms that no major changes will be made after approval. Any items kept pending for confirmation—with the exception of fabric selection—will not be scheduled for production. Kindly verify each detail to ensure every piece is manufactured precisely to your preference.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -993,251 +975,223 @@ export default function ReviewSheet({
                   <span>QTN-{doc.series} / REVIEW SHEET NO.: {displaySheetNo}</span>
                 </div>
 
-                {/* Fixed Product Heading & Approval Banner */}
+                {/* Top Product Information Box (Exact Reference Image 2 Layout) */}
                 <div
                   style={{
-                    background: '#f8f9fa',
-                    border: '1px solid #e5e7eb',
+                    border: '1.5px solid #111111',
                     padding: '12px 18px',
-                    borderRadius: '2px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: '10px',
-                    marginBottom: '18px',
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span
-                      style={{
-                        background: '#111',
-                        color: '#fff',
-                        width: '24px',
-                        height: '24px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderRadius: '50%',
-                        fontSize: '11px',
-                        fontWeight: 700,
-                      }}
-                    >
-                      {pIdx + 1}
-                    </span>
-                    <h2
-                      style={{
-                        fontFamily: 'var(--font-serif)',
-                        fontSize: '18px',
-                        fontWeight: 700,
-                        margin: 0,
-                        color: '#111',
-                      }}
-                    >
-                      {product.name}
-                    </h2>
-                    <span
-                      style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        background: '#fff',
-                        padding: '2px 8px',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '2px',
-                      }}
-                    >
-                      Qty: {product.qty} {product.utype || 'nos'}
-                    </span>
-                  </div>
-
-                  {/* Production Approval & Product ID */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    {isApproved ? (
-                      <span
-                        style={{
-                          background: '#e8f5e9',
-                          color: '#2e7d32',
-                          border: '1px solid #a5d6a7',
-                          padding: '3px 10px',
-                          borderRadius: '2px',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                        }}
-                      >
-                        ✓ APPROVED [{product.productId || `PID-${doc.series}-${String(pIdx + 1).padStart(2, '0')}`}]
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          background: '#fff8e1',
-                          color: '#f57f17',
-                          border: '1px solid #ffe082',
-                          padding: '3px 8px',
-                          borderRadius: '2px',
-                          fontSize: '10px',
-                          fontWeight: 600,
-                        }}
-                      >
-                        ⏳ PENDING PRODUCTION APPROVAL
-                      </span>
-                    )}
-
-                    {!isViewingSnapshot && (
-                      <button
-                        type="button"
-                        className="no-print del-btn"
-                        onClick={() => handleToggleApproval(product)}
-                        style={{
-                          borderColor: isApproved ? '#ff5555' : '#28a745',
-                          color: isApproved ? '#ff5555' : '#28a745',
-                          fontSize: '10px',
-                          padding: '3px 8px',
-                        }}
-                      >
-                        {isApproved ? 'Revoke Approval' : '✓ Approve'}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      className="no-print"
-                      onClick={() => handleExportSingleProductWord(product, pIdx)}
-                      disabled={exportingWord}
-                      style={{
-                        background: '#107c41',
-                        color: '#ffffff',
-                        border: 'none',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        padding: '4px 10px',
-                        borderRadius: '2px',
-                        cursor: exportingWord ? 'wait' : 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                      }}
-                      title={`Download editable Microsoft Word document (.docx) for ${product.name}`}
-                    >
-                      <span>📥</span>
-                      <span>Word (.docx)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Product Layout: Two Balanced Columns */}
-                <div
-                  style={{
+                    marginBottom: '16px',
+                    background: '#ffffff',
                     display: 'grid',
-                    gridTemplateColumns: isPortrait ? '1fr' : '1.25fr 1fr',
-                    gap: '24px',
-                    alignItems: 'start',
+                    gridTemplateColumns: '1.2fr 1.2fr 1.1fr',
+                    gap: '12px',
+                    alignItems: 'center',
+                    fontSize: '11px',
+                    lineHeight: 1.6,
                   }}
                 >
-                  {/* LEFT COLUMN: Picture - 1 & Interactive Vector Annotation Canvas */}
+                  {/* Col 1: Sl. No. & ITEM */}
                   <div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Picture - 1: Quotation Reference & Production Drawing
-                      </span>
+                    <div><strong>Sl. No. :</strong> {pIdx + 1}</div>
+                    <div style={{ marginTop: '2px' }}>
+                      <strong>ITEM :</strong> <span style={{ textTransform: 'uppercase', fontWeight: 600 }}>{product.name}</span>
+                    </div>
+                  </div>
+
+                  {/* Col 2: PRODUCT ID & QUANTITY */}
+                  <div>
+                    <div>
+                      <strong>PRODUCT ID :</strong>{' '}
+                      {isApproved ? (
+                        <span style={{ color: '#27ae60', fontWeight: 700 }}>
+                          {product.productId || `PID-${doc.series}-${String(pIdx + 1).padStart(2, '0')}`}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#d97706', fontWeight: 600 }}>
+                          PENDING APPROVAL
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ marginTop: '2px' }}>
+                      <strong>QUANTITY :</strong> {product.qty} {product.utype || 'nos'}
+                    </div>
+                  </div>
+
+                  {/* Col 3: Revision, Last Edited & Approval Actions */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <div><strong>Revision :</strong> {product.revision || '01'}</div>
+                      <div style={{ color: '#555' }}><strong>Last Edited:</strong> {new Date().toLocaleDateString('en-GB')}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
                       {!isViewingSnapshot && (
                         <button
                           type="button"
-                          className="no-print"
-                          onClick={() => handleProductUpdate(product.id, { imageLocked: !product.imageLocked })}
+                          className="no-print del-btn"
+                          onClick={() => handleToggleApproval(product)}
                           style={{
-                            background: product.imageLocked ? '#111' : '#fff',
-                            color: product.imageLocked ? '#fff' : '#111',
-                            border: '1px solid #ccc',
+                            borderColor: isApproved ? '#ff5555' : '#28a745',
+                            color: isApproved ? '#ff5555' : '#28a745',
                             fontSize: '10px',
                             padding: '2px 8px',
-                            borderRadius: '2px',
-                            cursor: 'pointer',
                           }}
                         >
-                          {product.imageLocked ? '🔒 Position Locked' : '🔓 Lock Position'}
+                          {isApproved ? 'Revoke Approval' : '✓ Approve'}
                         </button>
+                      )}
+                      <button
+                        type="button"
+                        className="no-print"
+                        onClick={() => handleExportSingleProductWord(product, pIdx)}
+                        disabled={exportingWord}
+                        style={{
+                          background: '#107c41',
+                          color: '#ffffff',
+                          border: 'none',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          padding: '3px 8px',
+                          borderRadius: '2px',
+                          cursor: exportingWord ? 'wait' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                        }}
+                        title={`Download editable Microsoft Word document (.docx) for ${product.name}`}
+                      >
+                        <span>📥</span>
+                        <span>Word (.docx)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Main Product Layout: Left Workspace + Right Client Remarks Column (Exact Reference Image 2) */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isPortrait ? '1fr' : '1fr 240px',
+                    gap: '20px',
+                    alignItems: 'stretch',
+                  }}
+                >
+                  {/* =========================================================
+                      LEFT SECTION: Primary Image Workspace, Fabric Table, Technical Specs
+                  ========================================================= */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                    {/* Primary Image Workspace with Reference Image Badge */}
+                    <div style={{ position: 'relative' }}>
+                      {/* Reference Image Badge (from Reference Image 2) */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '10px',
+                          left: '10px',
+                          background: '#e3f2fd',
+                          border: '1px solid #90caf9',
+                          padding: '3px 8px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          color: '#1565c0',
+                          zIndex: 20,
+                          borderRadius: '2px',
+                          letterSpacing: '0.02em',
+                        }}
+                      >
+                        Reference Image
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' }}>
+                        {!isViewingSnapshot && (
+                          <button
+                            type="button"
+                            className="no-print"
+                            onClick={() => handleProductUpdate(product.id, { imageLocked: !product.imageLocked })}
+                            style={{
+                              background: product.imageLocked ? '#111' : '#fff',
+                              color: product.imageLocked ? '#fff' : '#111',
+                              border: '1px solid #ccc',
+                              fontSize: '10px',
+                              padding: '2px 8px',
+                              borderRadius: '2px',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {product.imageLocked ? '🔒 Position Locked' : '🔓 Lock Position'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Active Interactive Annotation Canvas with All 9 Tools */}
+                      <div style={{ height: isPortrait ? '340px' : '380px', width: '100%' }}>
+                        <AnnotationCanvas
+                          imageSrc={product.photo}
+                          annotations={product.annotations || []}
+                          onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
+                          activeTool={activeTool}
+                          activeColor={activeColor}
+                          activeStroke={activeStroke}
+                          isLocked={product.imageLocked}
+                          isReadOnly={isViewingSnapshot}
+                          onApproveProduct={() => {
+                            if (!isApproved) handleToggleApproval(product);
+                          }}
+                        />
+                      </div>
+
+                      {/* Additional Views (Picture - 2, Picture - 3...) */}
+                      {product.additionalImages && product.additionalImages.length > 0 && (
+                        <div style={{ marginTop: '10px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray)' }}>
+                            Additional Views:
+                          </span>
+                          <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                            {product.additionalImages.map((img) => (
+                              <div key={img.id} style={{ textAlign: 'center' }}>
+                                <img
+                                  src={img.url}
+                                  alt={img.label}
+                                  style={{
+                                    width: '64px',
+                                    height: '64px',
+                                    objectFit: 'cover',
+                                    border: '1px solid #ccc',
+                                    borderRadius: '2px',
+                                  }}
+                                />
+                                <div style={{ fontSize: '9px', fontWeight: 600, color: '#555', marginTop: '2px' }}>
+                                  {img.label || 'Picture'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isViewingSnapshot && (
+                        <div className="no-print" style={{ marginTop: '6px' }}>
+                          <label
+                            style={{
+                              fontSize: '10px',
+                              color: '#2b579a',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            + Upload Additional Image (Picture - {(product.additionalImages?.length || 0) + 2})
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              onChange={(e) => handleAddAdditionalImage(product.id, e)}
+                            />
+                          </label>
+                        </div>
                       )}
                     </div>
 
-                    {/* Active Interactive Annotation Canvas with All 9 Tools */}
-                    <div style={{ height: isPortrait ? '340px' : '390px', width: '100%' }}>
-                      <AnnotationCanvas
-                        imageSrc={product.photo}
-                        annotations={product.annotations || []}
-                        onChangeAnnotations={(newAnns) => handleProductUpdate(product.id, { annotations: newAnns })}
-                        activeTool={activeTool}
-                        activeColor={activeColor}
-                        activeStroke={activeStroke}
-                        isLocked={product.imageLocked}
-                        isReadOnly={isViewingSnapshot}
-                        onApproveProduct={() => {
-                          if (!isApproved) handleToggleApproval(product);
-                        }}
-                      />
-                    </div>
-
-                    {/* Additional Images (Picture - 2, Picture - 3...) */}
-                    {product.additionalImages && product.additionalImages.length > 0 && (
-                      <div style={{ marginTop: '12px' }}>
-                        <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--gray)' }}>
-                          Additional Views:
-                        </span>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
-                          {product.additionalImages.map((img) => (
-                            <div key={img.id} style={{ textAlign: 'center' }}>
-                              <img
-                                src={img.url}
-                                alt={img.label}
-                                style={{
-                                  width: '64px',
-                                  height: '64px',
-                                  objectFit: 'cover',
-                                  border: '1px solid #ccc',
-                                  borderRadius: '2px',
-                                }}
-                              />
-                              <div style={{ fontSize: '9px', fontWeight: 600, color: '#555', marginTop: '2px' }}>
-                                {img.label || 'Picture'}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {!isViewingSnapshot && (
-                      <div className="no-print" style={{ marginTop: '8px' }}>
-                        <label
-                          style={{
-                            fontSize: '10px',
-                            color: '#2b579a',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            textDecoration: 'underline',
-                          }}
-                        >
-                          + Upload Additional Image (Picture - {(product.additionalImages?.length || 0) + 2})
-                          <input
-                            type="file"
-                            accept="image/*"
-                            style={{ display: 'none' }}
-                            onChange={(e) => handleAddAdditionalImage(product.id, e)}
-                          />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* RIGHT COLUMN: Fabric Details Table & Customer Note Area */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {/* Selected Fabric Details Table (Section 8) */}
+                    {/* Selected Fabric Details Table (Exact Reference Image 1 Layout) */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -1272,68 +1226,110 @@ export default function ReviewSheet({
                         </div>
                       ) : (
                         <div style={{ overflowX: 'auto' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', border: '1px solid #111' }}>
                             <thead>
                               <tr style={{ background: '#f8f9fa', borderBottom: '1.5px solid #111' }}>
-                                <th style={{ padding: '5px 4px', textAlign: 'center', width: '28px' }}>Sl.</th>
-                                <th style={{ padding: '5px 6px', textAlign: 'left' }}>Part Name</th>
-                                <th style={{ padding: '5px 6px', textAlign: 'left' }}>Brand</th>
-                                <th style={{ padding: '5px 6px', textAlign: 'left' }}>Catalogue Code</th>
-                                <th style={{ padding: '5px 6px', textAlign: 'left' }}>Total Meter</th>
-                                <th style={{ padding: '5px 6px', textAlign: 'left' }}>Remark</th>
+                                <th style={{ padding: '6px 4px', textAlign: 'center', width: '32px', borderRight: '1px solid #111' }}>Sl. No.</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Part Name</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Specification</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #111' }}>Code</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'center', width: '90px', borderRight: '1px solid #111' }}>Reference Image</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'left', width: '60px', borderRight: '1px solid #111' }}>Qty</th>
+                                <th style={{ padding: '6px 8px', textAlign: 'left' }}>Remark</th>
                                 {!isViewingSnapshot && <th className="no-print" style={{ width: '20px' }}></th>}
                               </tr>
                             </thead>
                             <tbody>
                               {product.fabricSelections.map((fab, fIdx) => (
                                 <tr key={fab.id || fIdx} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                  <td style={{ padding: '4px', textAlign: 'center', fontWeight: 600 }}>{fIdx + 1}</td>
-                                  <td style={{ padding: '4px 6px' }}>
+                                  <td style={{ padding: '6px 4px', textAlign: 'center', fontWeight: 600, borderRight: '1px solid #e5e7eb' }}>{fIdx + 1}</td>
+                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
                                     {!isViewingSnapshot ? (
                                       <input
                                         className="inp"
                                         style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.partName || fab.location || ''}
+                                        value={fab.partName || ''}
+                                        placeholder="e.g. Seating"
                                         onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'partName', e.target.value)}
                                       />
                                     ) : (
-                                      fab.partName || fab.location || '—'
+                                      fab.partName || '—'
                                     )}
                                   </td>
-                                  <td style={{ padding: '4px 6px' }}>
+                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
                                     {!isViewingSnapshot ? (
                                       <input
                                         className="inp"
                                         style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.brand || ''}
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'brand', e.target.value)}
+                                        value={fab.specification || fab.brand || ''}
+                                        placeholder="e.g. Sarom"
+                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'specification', e.target.value)}
                                       />
                                     ) : (
-                                      fab.brand || '—'
+                                      fab.specification || fab.brand || '—'
                                     )}
                                   </td>
-                                  <td style={{ padding: '4px 6px' }}>
+                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
                                     {!isViewingSnapshot ? (
                                       <input
                                         className="inp"
                                         style={{ padding: '2px 4px', fontSize: '10px' }}
-                                        value={fab.catalogueCode || fab.code || ''}
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'catalogueCode', e.target.value)}
+                                        value={fab.code || fab.catalogueCode || ''}
+                                        placeholder="e.g. 241"
+                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'code', e.target.value)}
                                       />
                                     ) : (
-                                      fab.catalogueCode || fab.code || '—'
+                                      fab.code || fab.catalogueCode || '—'
                                     )}
                                   </td>
-                                  <td style={{ padding: '4px 6px' }}>
+                                  {/* Swatch Reference Image Column (Reference Image 1) */}
+                                  <td style={{ padding: '4px', textAlign: 'center', borderRight: '1px solid #e5e7eb' }}>
+                                    {fab.refImage ? (
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                        <img
+                                          src={fab.refImage}
+                                          alt="Swatch"
+                                          style={{ width: '44px', height: '30px', objectFit: 'cover', border: '1px solid #ccc', borderRadius: '1px' }}
+                                        />
+                                        {!isViewingSnapshot && (
+                                          <button
+                                            type="button"
+                                            className="no-print"
+                                            onClick={() => handleFabricFieldChange(product.id, fab.id, 'refImage', null)}
+                                            style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '9px' }}
+                                            title="Remove swatch"
+                                          >
+                                            ✕
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      !isViewingSnapshot ? (
+                                        <label style={{ fontSize: '9px', color: '#2b579a', cursor: 'pointer', textDecoration: 'underline' }}>
+                                          📷 Upload
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            style={{ display: 'none' }}
+                                            onChange={(e) => handleFabricSwatchUpload(product.id, fab.id, e.target.files?.[0])}
+                                          />
+                                        </label>
+                                      ) : (
+                                        <span style={{ color: '#aaa', fontSize: '9px' }}>None</span>
+                                      )
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '4px 6px', borderRight: '1px solid #e5e7eb' }}>
                                     {!isViewingSnapshot ? (
                                       <input
                                         className="inp"
-                                        style={{ padding: '2px 4px', fontSize: '10px', width: '50px' }}
-                                        value={fab.totalMeter || fab.yardage || ''}
-                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'totalMeter', e.target.value)}
+                                        style={{ padding: '2px 4px', fontSize: '10px', width: '45px' }}
+                                        value={fab.qty || fab.totalMeter || ''}
+                                        placeholder="e.g. 6 mtr"
+                                        onChange={(e) => handleFabricFieldChange(product.id, fab.id, 'qty', e.target.value)}
                                       />
                                     ) : (
-                                      fab.totalMeter || fab.yardage || '—'
+                                      fab.qty || fab.totalMeter || '—'
                                     )}
                                   </td>
                                   <td style={{ padding: '4px 6px' }}>
@@ -1368,6 +1364,65 @@ export default function ReviewSheet({
                       )}
                     </div>
 
+                    {/* Section 14 Technical Boxes: Client Input (Blue) & ZOOSH Proposed Spec (Green) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                      {/* Box A: Client Input — Blue Outline */}
+                      <div
+                        style={{
+                          border: '1.5px solid #2b579a',
+                          borderRadius: '2px',
+                          padding: '10px 14px',
+                          background: '#f4f7fb',
+                        }}
+                      >
+                        <div style={{ color: '#2b579a', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                          CLIENT INPUT (SITE MEASUREMENTS & REQUIREMENTS)
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Dining counter height:</span>
+                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.counterHeight || '______ cm'}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Available clearance:</span>
+                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.clearance || '______ cm'}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Required site measurement:</span>
+                            <span style={{ fontWeight: 600, color: '#111' }}>{product.clientInputs?.siteMeasurement || '______ cm'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Box B: ZOOSH Proposed Specification — Green Outline */}
+                      <div
+                        style={{
+                          border: '1.5px solid #27ae60',
+                          borderRadius: '2px',
+                          padding: '10px 14px',
+                          background: '#f5faf6',
+                        }}
+                      >
+                        <div style={{ color: '#27ae60', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>
+                          ZOOSH PROPOSED SPECIFICATION (FACTORY STANDARDS)
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Proposed overall height:</span>
+                            <span style={{ fontWeight: 700, color: '#111' }}>75 cm</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Proposed seat height:</span>
+                            <span style={{ fontWeight: 700, color: '#111' }}>65 cm</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                            <span style={{ color: '#333' }}>Internal frame:</span>
+                            <span style={{ fontWeight: 600, color: '#111' }}>Treated Solid Teak Wood</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Designated Customer Note Area (Word Editable Form Field) */}
                     <div>
                       <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
@@ -1379,7 +1434,7 @@ export default function ReviewSheet({
 
                       {!isViewingSnapshot ? (
                         <textarea
-                          rows={4}
+                          rows={3}
                           placeholder="Type customer notes, finish instructions, or specific upholstery preferences..."
                           value={product.customerNotes || ''}
                           onChange={(e) => handleProductUpdate(product.id, { customerNotes: e.target.value }, true)}
@@ -1399,12 +1454,12 @@ export default function ReviewSheet({
                       ) : (
                         <div
                           style={{
-                            padding: '10px 12px',
+                            padding: '8px 10px',
                             border: '1px solid #d1d5db',
                             borderRadius: '2px',
                             fontSize: '11px',
                             background: '#f8f9fa',
-                            minHeight: '60px',
+                            minHeight: '45px',
                             fontStyle: product.customerNotes ? 'normal' : 'italic',
                             color: product.customerNotes ? '#111' : 'var(--gray)',
                           }}
@@ -1413,6 +1468,100 @@ export default function ReviewSheet({
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* =========================================================
+                      RIGHT SECTION: Dedicated Fixed-Width CLIENT REMARKS Column (Reference Image 2)
+                  ========================================================= */}
+                  <div
+                    style={{
+                      borderLeft: '1.5px solid #111111',
+                      paddingLeft: '18px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                      <h3
+                        style={{
+                          fontFamily: 'var(--font-sans)',
+                          fontSize: '13px',
+                          fontWeight: 800,
+                          textDecoration: 'underline',
+                          textTransform: 'uppercase',
+                          margin: '0 0 6px',
+                          letterSpacing: '0.04em',
+                          color: '#111111',
+                        }}
+                      >
+                        CLIENT REMARKS
+                      </h3>
+                      <div
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          textDecoration: 'underline',
+                          color: '#111111',
+                        }}
+                      >
+                        Revision : {product.remarksRevision || '01'}
+                      </div>
+                    </div>
+
+                    {/* Numbered List of Client Remarks (Reference Image 2) */}
+                    <ol
+                      style={{
+                        margin: '0 0 16px',
+                        paddingLeft: '18px',
+                        fontSize: '11px',
+                        lineHeight: 1.8,
+                        color: '#111111',
+                        flex: 1,
+                      }}
+                    >
+                      {(product.clientRemarks && product.clientRemarks.length > 0) ? (
+                        product.clientRemarks.map((rem, rIdx) => (
+                          <li key={rIdx} style={{ marginBottom: '6px' }}>
+                            <span>{rem}</span>
+                            {!isViewingSnapshot && (
+                              <button
+                                type="button"
+                                className="no-print"
+                                onClick={() => handleRemoveClientRemark(product.id, rIdx)}
+                                style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', marginLeft: '6px', fontSize: '10px' }}
+                                title="Remove remark"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </li>
+                        ))
+                      ) : (
+                        <li style={{ fontStyle: 'italic', color: '#888' }}>
+                          No client remarks recorded.
+                        </li>
+                      )}
+                    </ol>
+
+                    {/* Add Client Remark Field (hidden on print) */}
+                    {!isViewingSnapshot && (
+                      <div className="no-print" style={{ borderTop: '1px solid #e5e7eb', paddingTop: '10px' }}>
+                        <input
+                          placeholder="+ Add client remark..."
+                          className="inp"
+                          style={{ width: '100%', fontSize: '10px', padding: '4px 6px', boxSizing: 'border-box' }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.target.value.trim()) {
+                              handleAddClientRemark(product.id, e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                        <div style={{ fontSize: '9px', color: '#888', marginTop: '3px' }}>
+                          Press Enter to save remark (increments Remarks Rev)
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
