@@ -993,17 +993,6 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       const addTable = await buildAdditionalImagesWordTable(page1AddImgs);
       if (addTable) {
         leftChildren.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `ADDITIONAL VIEWS (${product.additionalImages.length} attached views):`,
-                bold: true,
-                size: 15,
-                color: '444444',
-              }),
-            ],
-            spacing: { before: 80, after: 60 },
-          }),
           addTable,
           new Paragraph({ text: '', spacing: { after: 80 } })
         );

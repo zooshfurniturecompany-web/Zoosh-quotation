@@ -5,14 +5,23 @@ import { TOOLS } from './ReviewToolbar';
 /**
  * UnifiedReferenceCanvas:
  * Single, unified reference image workspace for all product photos.
- * Picture 1 (Primary Drawing) and all additional photos (Picture 2, Picture 3...)
- * share the EXACT SAME canvas container with zero separate divisions.
  * 
- * Users can:
- * - Resize Picture 1 to create blank space in the canvas.
- * - Move additional photos (Picture 2, 3...) directly INTO that blank space.
- * - Freely resize, crop, and move ANY image anywhere across the canvas.
- * - NO separate divisions, NO popup windows.
+ * KEY FEATURES:
+ * 1. AUTOMATIC CANVAS FILL:
+ *    - All images automatically fit and fill 100% of the canvas with ZERO blank spaces.
+ *    - 1 Image: Picture 1 fills 100% of the canvas.
+ *    - 2 Images: Picture 1 (62% left) + Picture 2 (38% right) fill 100% width & height.
+ *    - 3 Images: Picture 1 (60% left) + Picture 2 & 3 stacked on the right fill 100%.
+ *    - 4 Images: Picture 1 (55% left) + Picture 2, 3, 4 grid on the right fill 100%.
+ * 
+ * 2. NO ACCIDENTAL CROP ON CLICK:
+ *    - Normal clicks ONLY select the image or draw annotations.
+ *    - Crop handles only appear when the user intentionally clicks "✂️ Crop" on that image.
+ *    - Dragging inside an image pans/repositions the focal point (objectPosition) without moving the frame.
+ * 
+ * 3. ADJUSTABLE SPLIT:
+ *    - Users can drag the vertical divider or use quick presets (60/40, 50/50, 70/30)
+ *      to give more or less space to Picture 1 while keeping everything 100% filled.
  */
 export default function UnifiedReferenceCanvas({
   product,
@@ -26,203 +35,111 @@ export default function UnifiedReferenceCanvas({
   onUpdateProduct,
   onAddAdditionalImage,
   onRemoveAdditionalImage,
-  height = '400px',
+  height = '390px',
 }) {
   const canvasRef = useRef(null);
   const [selectedId, setSelectedId] = useState(null); // 'primary' | img.id
+  const [croppingId, setCroppingId] = useState(null); // ID of image currently in intentional crop mode
 
-  // Dragging / Moving / Resizing / Cropping state
-  const [activeAction, setActiveAction] = useState(null); // { type: 'move'|'handle', targetId: string, handleName?: string }
-  const [dragCurrent, setDragCurrent] = useState(null); // live preview coordinates during drag
+  // Canvas split percentage for Picture 1 vs Additional Views (default 60%)
+  const splitPercent = product.canvasSplit !== undefined && product.canvasSplit !== null ? product.canvasSplit : 60;
+  const [localSplit, setLocalSplit] = useState(splitPercent);
+  const [isDraggingDivider, setIsDraggingDivider] = useState(false);
 
-  const dragStartRef = useRef({
-    startX: 0,
-    startY: 0,
-    targetId: null,
-    initPos: { x: 0, y: 0 },
-    initScale: 1,
-    initInsets: { top: 0, right: 0, bottom: 0, left: 0 },
-  });
+  // In-image panning state (dragging inside photo adjusts focal point objectPosition)
+  const [panningTarget, setPanningTarget] = useState(null);
+  const panStartRef = useRef({ startX: 0, startY: 0, initPan: { x: 50, y: 50 } });
 
-  const [cropInsetsMap, setCropInsetsMap] = useState({}); // { [targetId]: { top, right, bottom, left } }
+  // Crop handles state
+  const [cropInsets, setCropInsets] = useState({ top: 0, right: 0, bottom: 0, left: 0 });
+  const [isDraggingCropHandle, setIsDraggingCropHandle] = useState(null);
+  const cropStartRef = useRef({ startX: 0, startY: 0, initInsets: { top: 0, right: 0, bottom: 0, left: 0 } });
 
-  // Helpers to get current geometry for an image
-  const getImageData = (id) => {
-    if (id === 'primary') {
-      const defaultScale = (product.additionalImages && product.additionalImages.length > 0) ? 0.6 : 1;
-      return {
-        id: 'primary',
-        url: product.photo,
-        originalUrl: product.originalPhoto,
-        label: 'PICTURE - 1: QUOTATION REFERENCE & PRODUCTION DRAWING',
-        scale: product.photoScale !== undefined && product.photoScale !== null ? product.photoScale : defaultScale,
-        posX: product.photoPosX !== undefined && product.photoPosX !== null ? product.photoPosX : 0,
-        posY: product.photoPosY !== undefined && product.photoPosY !== null ? product.photoPosY : 0,
-        pan: product.photoPan || { x: 50, y: 50 },
-        zoom: product.photoZoom || 1,
-        isPrimary: true,
-      };
+  useEffect(() => {
+    if (product.canvasSplit !== undefined && product.canvasSplit !== null) {
+      setLocalSplit(product.canvasSplit);
     }
-    const addImgs = product.additionalImages || [];
-    const idx = addImgs.findIndex((img) => img.id === id);
-    if (idx === -1) return null;
-    const img = addImgs[idx];
-
-    // Smart default positions in the blank space beside/below Picture 1
-    const defaultX = idx === 0 ? 54 : idx === 1 ? 54 : 0;
-    const defaultY = idx === 0 ? 0 : idx === 1 ? 50 : 54;
-    const defaultScale = 0.44;
-
-    return {
-      id: img.id,
-      url: img.url,
-      originalUrl: img.originalUrl,
-      label: img.label || `PICTURE - ${idx + 2}`,
-      scale: img.scale !== undefined && img.scale !== null ? img.scale : defaultScale,
-      posX: img.posX !== undefined && img.posX !== null ? img.posX : defaultX,
-      posY: img.posY !== undefined && img.posY !== null ? img.posY : defaultY,
-      pan: img.pan || { x: 50, y: 50 },
-      zoom: img.zoom || 1,
-      isPrimary: false,
-    };
-  };
+  }, [product.canvasSplit]);
 
   // Click outside to deselect
   useEffect(() => {
     const handleDocumentClick = (e) => {
       if (canvasRef.current && !canvasRef.current.contains(e.target)) {
         setSelectedId(null);
+        if (croppingId) {
+          setCroppingId(null);
+          setCropInsets({ top: 0, right: 0, bottom: 0, left: 0 });
+        }
       }
     };
     document.addEventListener('mousedown', handleDocumentClick);
     return () => document.removeEventListener('mousedown', handleDocumentClick);
-  }, []);
+  }, [croppingId]);
 
-  // Keyboard Nudge (Arrow Keys) for selected image
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (!selectedId || readOnly || isLocked) return;
-      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-        e.preventDefault();
-        const data = getImageData(selectedId);
-        if (!data) return;
-
-        const step = e.shiftKey ? 5 : 1;
-        const maxPosX = Math.max(0, 100 - Math.round(data.scale * 100));
-        const maxPosY = Math.max(0, 100 - Math.round(data.scale * 100));
-
-        let nextX = data.posX;
-        let nextY = data.posY;
-        if (e.key === 'ArrowLeft') nextX = Math.max(0, nextX - step);
-        if (e.key === 'ArrowRight') nextX = Math.min(maxPosX, nextX + step);
-        if (e.key === 'ArrowUp') nextY = Math.max(0, nextY - step);
-        if (e.key === 'ArrowDown') nextY = Math.min(maxPosY, nextY + step);
-
-        const updatedPos = { x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };
-        savePosition(selectedId, updatedPos.x, updatedPos.y);
-      } else if (e.key === 'Escape') {
-        setSelectedId(null);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedId, product, readOnly, isLocked]);
-
-  // Mouse Move & Mouse Up for drag move, corner resize, and edge crop
+  // Mouse Move & Mouse Up for Divider Dragging, In-Image Panning, and Intentional Cropping
   useEffect(() => {
     const handleMouseMove = (e) => {
-      if (!activeAction || !canvasRef.current) return;
+      if (!canvasRef.current) return;
       const rect = canvasRef.current.getBoundingClientRect();
-      const deltaXPercent = ((e.clientX - dragStartRef.current.startX) / rect.width) * 100;
-      const deltaYPercent = ((e.clientY - dragStartRef.current.startY) / rect.height) * 100;
 
-      // 1. FREE MOVE: Move image to any (x, y) on the canvas (into blank spaces)
-      if (activeAction.type === 'move') {
-        const initScale = dragStartRef.current.initScale;
-        const maxPosX = Math.max(0, 100 - Math.round(initScale * 100));
-        const maxPosY = Math.max(0, 100 - Math.round(initScale * 100));
-
-        const nextX = Math.max(0, Math.min(maxPosX, dragStartRef.current.initPos.x + deltaXPercent));
-        const nextY = Math.max(0, Math.min(maxPosY, dragStartRef.current.initPos.y + deltaYPercent));
-
-        setDragCurrent({
-          id: activeAction.targetId,
-          type: 'move',
-          posX: Math.round(nextX * 10) / 10,
-          posY: Math.round(nextY * 10) / 10,
-        });
+      // 1. DRAG DIVIDER (Adjust split ratio between Picture 1 and Additional Views)
+      if (isDraggingDivider) {
+        const newSplit = Math.max(35, Math.min(80, ((e.clientX - rect.left) / rect.width) * 100));
+        setLocalSplit(Math.round(newSplit));
       }
 
-      // 2. CORNER RESIZE: Proportional scale
-      else if (activeAction.type === 'handle' && ['tl', 'tr', 'br', 'bl'].includes(activeAction.handleName)) {
-        const hName = activeAction.handleName;
-        let scaleDelta = 0;
-        if (hName === 'br') scaleDelta = ((deltaXPercent + deltaYPercent) / 2) / 80;
-        else if (hName === 'tl') scaleDelta = -((deltaXPercent + deltaYPercent) / 2) / 80;
-        else if (hName === 'tr') scaleDelta = ((deltaXPercent - deltaYPercent) / 2) / 80;
-        else if (hName === 'bl') scaleDelta = ((-deltaXPercent + deltaYPercent) / 2) / 80;
+      // 2. PAN IMAGE FOCAL POINT (Only if mouse actually moved > 4px)
+      else if (panningTarget) {
+        const deltaX = e.clientX - panStartRef.current.startX;
+        const deltaY = e.clientY - panStartRef.current.startY;
+        if (Math.hypot(deltaX, deltaY) > 4) {
+          const deltaXPercent = (deltaX / rect.width) * 100;
+          const deltaYPercent = (deltaY / rect.height) * 100;
 
-        const nextScale = Math.max(0.18, Math.min(1.0, dragStartRef.current.initScale + scaleDelta));
-        const roundedScale = Math.round(nextScale * 100) / 100;
+          const nextX = Math.max(0, Math.min(100, panStartRef.current.initPan.x - deltaXPercent));
+          const nextY = Math.max(0, Math.min(100, panStartRef.current.initPan.y - deltaYPercent));
 
-        const maxPosX = Math.max(0, 100 - Math.round(roundedScale * 100));
-        const maxPosY = Math.max(0, 100 - Math.round(roundedScale * 100));
-        const nextPosX = Math.min(maxPosX, dragStartRef.current.initPos.x);
-        const nextPosY = Math.min(maxPosY, dragStartRef.current.initPos.y);
-
-        setDragCurrent({
-          id: activeAction.targetId,
-          type: 'resize',
-          scale: roundedScale,
-          posX: nextPosX,
-          posY: nextPosY,
-        });
-      }
-
-      // 3. EDGE CROP
-      else if (activeAction.type === 'handle' && ['t', 'b', 'l', 'r'].includes(activeAction.handleName)) {
-        const hName = activeAction.handleName;
-        const init = dragStartRef.current.initInsets;
-        let nextInsets = { ...init };
-
-        if (hName === 't') nextInsets.top = Math.max(0, Math.min(75, init.top + deltaYPercent));
-        if (hName === 'b') nextInsets.bottom = Math.max(0, Math.min(75, init.bottom - deltaYPercent));
-        if (hName === 'l') nextInsets.left = Math.max(0, Math.min(75, init.left + deltaXPercent));
-        if (hName === 'r') nextInsets.right = Math.max(0, Math.min(75, init.right - deltaXPercent));
-
-        setCropInsetsMap((prev) => ({
-          ...prev,
-          [activeAction.targetId]: nextInsets,
-        }));
-      }
-    };
-
-    const handleMouseUp = async () => {
-      if (!activeAction) return;
-
-      if (activeAction.type === 'move' && dragCurrent) {
-        savePosition(activeAction.targetId, dragCurrent.posX, dragCurrent.posY);
-      } else if (activeAction.type === 'handle' && ['tl', 'tr', 'br', 'bl'].includes(activeAction.handleName) && dragCurrent) {
-        saveScale(activeAction.targetId, dragCurrent.scale, dragCurrent.posX, dragCurrent.posY);
-      } else if (activeAction.type === 'handle' && ['t', 'b', 'l', 'r'].includes(activeAction.handleName)) {
-        const insets = cropInsetsMap[activeAction.targetId];
-        if (insets && (insets.top > 0 || insets.right > 0 || insets.bottom > 0 || insets.left > 0)) {
-          const imgData = getImageData(activeAction.targetId);
-          if (imgData) {
-            const baked = await bakeCroppedImage(imgData.url, insets);
-            if (baked) {
-              saveCroppedUrl(activeAction.targetId, baked);
-            }
+          if (panningTarget === 'primary') {
+            onUpdateProduct(product.id, { photoPan: { x: Math.round(nextX), y: Math.round(nextY) } }, true);
+          } else {
+            const updated = (product.additionalImages || []).map((img) =>
+              img.id === panningTarget ? { ...img, pan: { x: Math.round(nextX), y: Math.round(nextY) } } : img
+            );
+            onUpdateProduct(product.id, { additionalImages: updated }, true);
           }
-          setCropInsetsMap((prev) => ({ ...prev, [activeAction.targetId]: { top: 0, right: 0, bottom: 0, left: 0 } }));
         }
       }
 
-      setActiveAction(null);
-      setDragCurrent(null);
+      // 3. INTENTIONAL CROP HANDLE DRAG
+      else if (isDraggingCropHandle) {
+        const deltaX = ((e.clientX - cropStartRef.current.startX) / rect.width) * 100;
+        const deltaY = ((e.clientY - cropStartRef.current.startY) / rect.height) * 100;
+        const init = cropStartRef.current.initInsets;
+        let next = { ...init };
+
+        if (isDraggingCropHandle === 't') next.top = Math.max(0, Math.min(75, init.top + deltaY));
+        if (isDraggingCropHandle === 'b') next.bottom = Math.max(0, Math.min(75, init.bottom - deltaY));
+        if (isDraggingCropHandle === 'l') next.left = Math.max(0, Math.min(75, init.left + deltaX));
+        if (isDraggingCropHandle === 'r') next.right = Math.max(0, Math.min(75, init.right - deltaX));
+
+        setCropInsets(next);
+      }
     };
 
-    if (activeAction) {
+    const handleMouseUp = () => {
+      if (isDraggingDivider) {
+        setIsDraggingDivider(false);
+        onUpdateProduct(product.id, { canvasSplit: localSplit });
+      }
+      if (panningTarget) {
+        setPanningTarget(null);
+      }
+      if (isDraggingCropHandle) {
+        setIsDraggingCropHandle(null);
+      }
+    };
+
+    if (isDraggingDivider || panningTarget || isDraggingCropHandle) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -230,43 +147,37 @@ export default function UnifiedReferenceCanvas({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [activeAction, dragCurrent, cropInsetsMap, product]);
+  }, [isDraggingDivider, panningTarget, isDraggingCropHandle, localSplit, product]);
 
-  // Save actions to product state and database
-  const savePosition = (id, x, y) => {
-    if (id === 'primary') {
-      onUpdateProduct(product.id, { photoPosX: x, photoPosY: y });
+  // Handle intentional crop commit
+  const handleCommitCrop = async (targetId) => {
+    let imgSrc = null;
+    if (targetId === 'primary') {
+      imgSrc = product.photo;
     } else {
-      const updated = (product.additionalImages || []).map((img) =>
-        img.id === id ? { ...img, posX: x, posY: y } : img
-      );
-      onUpdateProduct(product.id, { additionalImages: updated });
+      const img = (product.additionalImages || []).find((i) => i.id === targetId);
+      imgSrc = img?.url;
     }
-  };
 
-  const saveScale = (id, scale, posX, posY) => {
-    if (id === 'primary') {
-      onUpdateProduct(product.id, { photoScale: scale, photoPosX: posX, photoPosY: posY });
-    } else {
-      const updated = (product.additionalImages || []).map((img) =>
-        img.id === id ? { ...img, scale, posX, posY } : img
-      );
-      onUpdateProduct(product.id, { additionalImages: updated });
+    if (imgSrc && (cropInsets.top > 0 || cropInsets.right > 0 || cropInsets.bottom > 0 || cropInsets.left > 0)) {
+      const baked = await bakeCroppedImage(imgSrc, cropInsets);
+      if (baked) {
+        if (targetId === 'primary') {
+          onUpdateProduct(product.id, {
+            photo: baked,
+            originalPhoto: product.originalPhoto || product.photo,
+          });
+        } else {
+          const updated = (product.additionalImages || []).map((img) =>
+            img.id === targetId ? { ...img, url: baked, originalUrl: img.originalUrl || img.url } : img
+          );
+          onUpdateProduct(product.id, { additionalImages: updated });
+        }
+      }
     }
-  };
 
-  const saveCroppedUrl = (id, croppedUrl) => {
-    if (id === 'primary') {
-      onUpdateProduct(product.id, {
-        photo: croppedUrl,
-        originalPhoto: product.originalPhoto || product.photo,
-      });
-    } else {
-      const updated = (product.additionalImages || []).map((img) =>
-        img.id === id ? { ...img, url: croppedUrl, originalUrl: img.originalUrl || img.url } : img
-      );
-      onUpdateProduct(product.id, { additionalImages: updated });
-    }
+    setCroppingId(null);
+    setCropInsets({ top: 0, right: 0, bottom: 0, left: 0 });
   };
 
   const bakeCroppedImage = (imgSrc, insets) => {
@@ -296,152 +207,153 @@ export default function UnifiedReferenceCanvas({
     });
   };
 
-  // Start dragging image body
-  const handleStartMove = (id, e) => {
+  // Start panning image content (only if in select mode, no accidental jumps)
+  const handleStartPan = (targetId, currentPan, e) => {
     if (readOnly || isLocked) return;
-    if (id === 'primary' && activeTool && activeTool !== TOOLS.SELECT) return;
+    if (targetId === 'primary' && activeTool !== TOOLS.SELECT) return;
 
-    e.preventDefault();
-    setSelectedId(id);
-    const data = getImageData(id);
-    if (!data) return;
-
-    dragStartRef.current = {
+    setSelectedId(targetId);
+    panStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      targetId: id,
-      initPos: { x: data.posX, y: data.posY },
-      initScale: data.scale,
-      initInsets: cropInsetsMap[id] || { top: 0, right: 0, bottom: 0, left: 0 },
+      initPan: { x: currentPan?.x ?? 50, y: currentPan?.y ?? 50 },
     };
-
-    setActiveAction({ type: 'move', targetId: id });
+    setPanningTarget(targetId);
   };
 
-  // Start dragging handle (corner resize or edge crop)
-  const handleStartHandle = (id, handleName, e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setSelectedId(id);
-    const data = getImageData(id);
-    if (!data) return;
+  const additionalImgs = product.additionalImages || [];
+  const hasAdditional = additionalImgs.length > 0;
+  const primaryWidth = hasAdditional ? `${localSplit}%` : '100%';
+  const additionalWidth = hasAdditional ? `${100 - localSplit}%` : '0%';
 
-    dragStartRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      targetId: id,
-      initPos: { x: data.posX, y: data.posY },
-      initScale: data.scale,
-      initInsets: cropInsetsMap[id] || { top: 0, right: 0, bottom: 0, left: 0 },
-    };
-
-    setActiveAction({ type: 'handle', targetId: id, handleName });
-  };
-
-  // Render a single image frame (Picture 1 or Additional View)
-  const renderImageFrame = (id) => {
-    const data = getImageData(id);
-    if (!data) return null;
-
-    const isSel = selectedId === id;
-    const isThisDragging = activeAction?.targetId === id;
-
-    // Use live preview position/scale if currently dragging
-    const currScale = (isThisDragging && dragCurrent?.scale !== undefined) ? dragCurrent.scale : data.scale;
-    const currPosX = (isThisDragging && dragCurrent?.posX !== undefined) ? dragCurrent.posX : data.posX;
-    const currPosY = (isThisDragging && dragCurrent?.posY !== undefined) ? dragCurrent.posY : data.posY;
-
-    const widthPercent = Math.round(currScale * 100);
-    const heightPercent = Math.round(currScale * 100);
-
-    const insets = cropInsetsMap[id] || { top: 0, right: 0, bottom: 0, left: 0 };
-    const hasCrop = insets.top > 0 || insets.right > 0 || insets.bottom > 0 || insets.left > 0;
-
-    return (
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+      {/* 
+        ========================================================================
+        THE SINGLE AUTO-FILLED CANVAS (Zero blank spaces, 100% filled)
+        ========================================================================
+      */}
       <div
-        key={id}
-        onMouseDown={(e) => handleStartMove(id, e)}
+        ref={canvasRef}
         style={{
-          position: 'absolute',
-          left: `${currPosX}%`,
-          top: `${currPosY}%`,
-          width: `${widthPercent}%`,
-          height: `${heightPercent}%`,
-          boxSizing: 'border-box',
-          border: isSel ? '2px solid #2b579a' : '1px solid #d1d5db',
-          boxShadow: isSel ? '0 0 0 1px #ffffff, 0 4px 14px rgba(0,0,0,0.22)' : '0 1px 4px rgba(0,0,0,0.08)',
+          position: 'relative',
+          width: '100%',
+          height: height || '390px',
+          background: '#ffffff',
+          border: '1.5px solid #111111',
           borderRadius: '2px',
-          background: '#fafafa',
-          zIndex: isSel ? 30 : id === 'primary' ? 10 : 15,
-          cursor: isSel ? (activeAction?.type === 'move' ? 'grabbing' : 'move') : 'pointer',
-          transition: isThisDragging ? 'none' : 'box-shadow 0.15s ease',
+          overflow: 'hidden',
+          display: 'flex',
+          boxSizing: 'border-box',
+          userSelect: 'none',
         }}
-        title={isSel ? 'Click & drag anywhere to move | Drag corners to resize | Drag edges to crop' : `Click to select ${data.label}`}
       >
-        {/* Label Badge in Top-Left */}
+        {/* ====================================================================
+            CELL 1: Primary Reference Drawing (Occupies Left Side or Full Canvas)
+        ==================================================================== */}
         <div
+          onClick={() => setSelectedId('primary')}
+          onMouseDown={(e) => handleStartPan('primary', product.photoPan, e)}
           style={{
-            position: 'absolute',
-            top: '6px',
-            left: '6px',
-            background: 'rgba(17, 24, 39, 0.85)',
-            color: '#ffffff',
-            fontSize: '9px',
-            fontWeight: 700,
-            padding: '2px 7px',
-            borderRadius: '2px',
-            zIndex: 35,
-            pointerEvents: 'none',
-            letterSpacing: '0.03em',
+            position: 'relative',
+            width: primaryWidth,
+            height: '100%',
+            overflow: 'hidden',
+            boxSizing: 'border-box',
+            borderRight: hasAdditional ? '2px solid #111111' : 'none',
+            background: '#ffffff',
+            cursor: activeTool === TOOLS.SELECT ? (panningTarget === 'primary' ? 'grabbing' : 'grab') : 'crosshair',
           }}
         >
-          {data.label}
-        </div>
-
-        {/* Quick Delete button for Additional Images */}
-        {!data.isPrimary && onRemoveAdditionalImage && !readOnly && !isLocked && (
-          <button
-            type="button"
-            className="no-print"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemoveAdditionalImage(product.id, id);
-            }}
+          {/* Label Badge */}
+          <div
             style={{
               position: 'absolute',
-              top: '6px',
-              right: '6px',
-              background: '#ef4444',
+              top: '8px',
+              left: '8px',
+              background: 'rgba(17, 24, 39, 0.85)',
               color: '#ffffff',
-              border: 'none',
-              borderRadius: '2px',
-              padding: '2px 6px',
-              fontSize: '9px',
-              cursor: 'pointer',
-              zIndex: 35,
+              fontSize: '10px',
               fontWeight: 700,
+              padding: '3px 8px',
+              borderRadius: '2px',
+              zIndex: 25,
+              pointerEvents: 'none',
+              letterSpacing: '0.04em',
             }}
-            title="Remove this photo from canvas"
           >
-            ✕ Delete
-          </button>
-        )}
+            PICTURE - 1: QUOTATION REFERENCE & PRODUCTION DRAWING
+          </div>
 
-        {/* Viewport with Crop Inset */}
-        <div
-          style={{
-            width: '100%',
-            height: '100%',
-            position: 'relative',
-            overflow: 'hidden',
-            clipPath: hasCrop
-              ? `inset(${insets.top}% ${insets.right}% ${insets.bottom}% ${insets.left}%)`
-              : 'none',
-          }}
-        >
-          {data.isPrimary ? (
+          {/* Action Toolbar on Hover/Select (Intentional Crop & Reset) */}
+          {selectedId === 'primary' && !readOnly && !isLocked && (
+            <div
+              className="no-print"
+              style={{
+                position: 'absolute',
+                top: '8px',
+                right: '8px',
+                display: 'flex',
+                gap: '4px',
+                zIndex: 30,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {croppingId !== 'primary' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCroppingId('primary');
+                    setCropInsets({ top: 0, right: 0, bottom: 0, left: 0 });
+                  }}
+                  style={{
+                    background: '#2b579a',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '2px',
+                    padding: '2px 8px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                  title="Crop borders intentionally"
+                >
+                  ✂️ Crop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleCommitCrop('primary')}
+                  style={{
+                    background: '#16a34a',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '2px',
+                    padding: '2px 8px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ✓ Apply Crop
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Interactive Annotation Canvas Overlay */}
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              clipPath:
+                croppingId === 'primary' && (cropInsets.top > 0 || cropInsets.right > 0 || cropInsets.bottom > 0 || cropInsets.left > 0)
+                  ? `inset(${cropInsets.top}% ${cropInsets.right}% ${cropInsets.bottom}% ${cropInsets.left}%)`
+                  : 'none',
+            }}
+          >
             <AnnotationCanvas
-              imageSrc={data.url}
+              imageSrc={product.photo}
               annotations={product.annotations || []}
               onChangeAnnotations={(newAnns) => onUpdateProduct(product.id, { annotations: newAnns })}
               activeTool={activeTool}
@@ -453,243 +365,383 @@ export default function UnifiedReferenceCanvas({
                 if (!isApproved && onApproveProduct) onApproveProduct();
               }}
               fit="cover"
-              panX={data.pan?.x ?? 50}
-              panY={data.pan?.y ?? 50}
-              zoom={data.zoom ?? 1}
+              panX={product.photoPan?.x ?? 50}
+              panY={product.photoPan?.y ?? 50}
+              zoom={product.photoZoom ?? 1}
             />
-          ) : data.url ? (
-            <img
-              src={data.url}
-              alt={data.label}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: `${data.pan?.x ?? 50}% ${data.pan?.y ?? 50}%`,
-                transform: data.zoom !== 1 ? `scale(${data.zoom})` : 'none',
-                display: 'block',
-                pointerEvents: 'none',
-              }}
-            />
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '11px' }}>
-              No image
-            </div>
-          )}
+          </div>
 
-          {/* Shaded mask over cropped borders during drag */}
-          {hasCrop && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(0, 0, 0, 0.4)',
-                pointerEvents: 'none',
-              }}
-            />
+          {/* Intentional Crop Handles (Only visible when "✂️ Crop" is clicked) */}
+          {croppingId === 'primary' && !readOnly && !isLocked && (
+            <>
+              <div
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setIsDraggingCropHandle('t');
+                  cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '0px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '32px',
+                  height: '8px',
+                  background: '#2b579a',
+                  cursor: 'ns-resize',
+                  zIndex: 35,
+                }}
+                title="Drag to crop top edge"
+              />
+              <div
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setIsDraggingCropHandle('b');
+                  cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                }}
+                style={{
+                  position: 'absolute',
+                  bottom: '0px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  width: '32px',
+                  height: '8px',
+                  background: '#2b579a',
+                  cursor: 'ns-resize',
+                  zIndex: 35,
+                }}
+                title="Drag to crop bottom edge"
+              />
+              <div
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setIsDraggingCropHandle('l');
+                  cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '0px',
+                  transform: 'translateY(-50%)',
+                  width: '8px',
+                  height: '32px',
+                  background: '#2b579a',
+                  cursor: 'ew-resize',
+                  zIndex: 35,
+                }}
+                title="Drag to crop left edge"
+              />
+              <div
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setIsDraggingCropHandle('r');
+                  cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: '0px',
+                  transform: 'translateY(-50%)',
+                  width: '8px',
+                  height: '32px',
+                  background: '#2b579a',
+                  cursor: 'ew-resize',
+                  zIndex: 35,
+                }}
+                title="Drag to crop right edge"
+              />
+            </>
           )}
         </div>
 
-        {/* 8 Drag Handles (Visible when this image is selected) */}
-        {isSel && !readOnly && !isLocked && (
-          <>
-            {/* 1. Corner Handle: Top-Left (Resize) */}
+        {/* ====================================================================
+            DRAGGABLE SPLIT DIVIDER (Adjust Left vs Right space while filling 100%)
+        ==================================================================== */}
+        {hasAdditional && !readOnly && !isLocked && (
+          <div
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsDraggingDivider(true);
+            }}
+            style={{
+              position: 'absolute',
+              left: `calc(${localSplit}% - 4px)`,
+              top: 0,
+              bottom: 0,
+              width: '8px',
+              cursor: 'col-resize',
+              zIndex: 40,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            title="Drag divider left or right to adjust size split"
+          >
             <div
-              onMouseDown={(e) => handleStartHandle(id, 'tl', e)}
               style={{
-                position: 'absolute',
-                top: '-6px',
-                left: '-6px',
-                width: '12px',
-                height: '12px',
-                background: '#ffffff',
-                border: '2px solid #2b579a',
-                borderRadius: '1px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'nwse-resize',
-                zIndex: 40,
-              }}
-              title="Drag corner to resize image"
-            />
-
-            {/* 2. Edge Handle: Top-Center (Crop) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 't', e)}
-              style={{
-                position: 'absolute',
-                top: '-4px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '24px',
-                height: '6px',
-                background: '#2b579a',
+                width: '4px',
+                height: '32px',
+                background: isDraggingDivider ? '#2b579a' : '#888888',
                 borderRadius: '2px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'ns-resize',
-                zIndex: 40,
+                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
               }}
-              title="Drag to crop top edge"
             />
+          </div>
+        )}
 
-            {/* 3. Corner Handle: Top-Right (Resize) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'tr', e)}
-              style={{
-                position: 'absolute',
-                top: '-6px',
-                right: '-6px',
-                width: '12px',
-                height: '12px',
-                background: '#ffffff',
-                border: '2px solid #2b579a',
-                borderRadius: '1px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'nesw-resize',
-                zIndex: 40,
-              }}
-              title="Drag corner to resize image"
-            />
+        {/* ====================================================================
+            CELL 2: Additional Images (Fills the entire remaining right side)
+        ==================================================================== */}
+        {hasAdditional && (
+          <div
+            style={{
+              position: 'relative',
+              width: additionalWidth,
+              height: '100%',
+              display: 'grid',
+              gridTemplateRows: additionalImgs.length === 1 ? '1fr' : additionalImgs.length === 2 ? 'repeat(2, 1fr)' : additionalImgs.length === 3 ? '1fr 1fr' : 'repeat(2, 1fr)',
+              gridTemplateColumns: additionalImgs.length >= 3 ? 'repeat(2, 1fr)' : '1fr',
+              background: '#ffffff',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
+            }}
+          >
+            {additionalImgs.slice(0, 4).map((img, idx) => {
+              const isSel = selectedId === img.id;
+              const isCrop = croppingId === img.id;
+              const pan = img.pan || { x: 50, y: 50 };
 
-            {/* 4. Edge Handle: Right-Center (Crop) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'r', e)}
-              style={{
-                position: 'absolute',
-                top: '50%',
-                right: '-4px',
-                transform: 'translateY(-50%)',
-                width: '6px',
-                height: '24px',
-                background: '#2b579a',
-                borderRadius: '2px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'ew-resize',
-                zIndex: 40,
-              }}
-              title="Drag to crop right edge"
-            />
+              return (
+                <div
+                  key={img.id}
+                  onClick={() => setSelectedId(img.id)}
+                  onMouseDown={(e) => handleStartPan(img.id, pan, e)}
+                  style={{
+                    position: 'relative',
+                    width: '100%',
+                    height: '100%',
+                    overflow: 'hidden',
+                    borderBottom: idx < additionalImgs.length - 1 ? '1px solid #e5e7eb' : 'none',
+                    borderRight: (additionalImgs.length >= 3 && idx % 2 === 0) ? '1px solid #e5e7eb' : 'none',
+                    boxSizing: 'border-box',
+                    background: '#ffffff',
+                    cursor: panningTarget === img.id ? 'grabbing' : 'grab',
+                  }}
+                >
+                  {/* Photo Label Badge */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '6px',
+                      left: '6px',
+                      background: 'rgba(17, 24, 39, 0.85)',
+                      color: '#ffffff',
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: '2px',
+                      zIndex: 20,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    {img.label || `PICTURE - ${idx + 2}`}
+                  </div>
 
-            {/* 5. Corner Handle: Bottom-Right (Resize) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'br', e)}
-              style={{
-                position: 'absolute',
-                bottom: '-6px',
-                right: '-6px',
-                width: '12px',
-                height: '12px',
-                background: '#ffffff',
-                border: '2px solid #2b579a',
-                borderRadius: '1px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'nwse-resize',
-                zIndex: 40,
-              }}
-              title="Drag corner to resize image"
-            />
+                  {/* Actions (Crop & Delete) */}
+                  {!readOnly && !isLocked && (
+                    <div
+                      className="no-print"
+                      style={{
+                        position: 'absolute',
+                        top: '6px',
+                        right: '6px',
+                        display: 'flex',
+                        gap: '3px',
+                        zIndex: 25,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {isCrop ? (
+                        <button
+                          type="button"
+                          onClick={() => handleCommitCrop(img.id)}
+                          style={{
+                            background: '#16a34a',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '2px',
+                            padding: '1px 6px',
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          ✓ Apply
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCroppingId(img.id);
+                            setCropInsets({ top: 0, right: 0, bottom: 0, left: 0 });
+                          }}
+                          style={{
+                            background: '#2b579a',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '2px',
+                            padding: '1px 6px',
+                            fontSize: '9px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          title="Crop image borders"
+                        >
+                          ✂️ Crop
+                        </button>
+                      )}
 
-            {/* 6. Edge Handle: Bottom-Center (Crop) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'b', e)}
-              style={{
-                position: 'absolute',
-                bottom: '-4px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '24px',
-                height: '6px',
-                background: '#2b579a',
-                borderRadius: '2px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'ns-resize',
-                zIndex: 40,
-              }}
-              title="Drag to crop bottom edge"
-            />
+                      <button
+                        type="button"
+                        onClick={() => onRemoveAdditionalImage && onRemoveAdditionalImage(product.id, img.id)}
+                        style={{
+                          background: '#ef4444',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '2px',
+                          padding: '1px 5px',
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                        title="Delete view"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
 
-            {/* 7. Corner Handle: Bottom-Left (Resize) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'bl', e)}
-              style={{
-                position: 'absolute',
-                bottom: '-6px',
-                left: '-6px',
-                width: '12px',
-                height: '12px',
-                background: '#ffffff',
-                border: '2px solid #2b579a',
-                borderRadius: '1px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'nesw-resize',
-                zIndex: 40,
-              }}
-              title="Drag corner to resize image"
-            />
+                  {/* Image Element Filling 100% of cell */}
+                  <img
+                    src={img.url}
+                    alt={img.label || `Picture - ${idx + 2}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: `${pan.x}% ${pan.y}%`,
+                      display: 'block',
+                      pointerEvents: 'none',
+                      clipPath:
+                        isCrop && (cropInsets.top > 0 || cropInsets.right > 0 || cropInsets.bottom > 0 || cropInsets.left > 0)
+                          ? `inset(${cropInsets.top}% ${cropInsets.right}% ${cropInsets.bottom}% ${cropInsets.left}%)`
+                          : 'none',
+                    }}
+                  />
 
-            {/* 8. Edge Handle: Left-Center (Crop) */}
-            <div
-              onMouseDown={(e) => handleStartHandle(id, 'l', e)}
-              style={{
-                position: 'absolute',
-                top: '50%',
-                left: '-4px',
-                transform: 'translateY(-50%)',
-                width: '6px',
-                height: '24px',
-                background: '#2b579a',
-                borderRadius: '2px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                cursor: 'ew-resize',
-                zIndex: 40,
-              }}
-              title="Drag to crop left edge"
-            />
-          </>
+                  {/* Crop Handles for Additional Image */}
+                  {isCrop && (
+                    <>
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setIsDraggingCropHandle('t');
+                          cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '0px',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          width: '28px',
+                          height: '6px',
+                          background: '#2b579a',
+                          cursor: 'ns-resize',
+                          zIndex: 30,
+                        }}
+                      />
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setIsDraggingCropHandle('b');
+                          cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                        }}
+                        style={{
+                          position: 'absolute',
+                          bottom: '0px',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          width: '28px',
+                          height: '6px',
+                          background: '#2b579a',
+                          cursor: 'ns-resize',
+                          zIndex: 30,
+                        }}
+                      />
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setIsDraggingCropHandle('l');
+                          cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '0px',
+                          transform: 'translateY(-50%)',
+                          width: '6px',
+                          height: '28px',
+                          background: '#2b579a',
+                          cursor: 'ew-resize',
+                          zIndex: 30,
+                        }}
+                      />
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setIsDraggingCropHandle('r');
+                          cropStartRef.current = { startX: e.clientX, startY: e.clientY, initInsets: { ...cropInsets } };
+                        }}
+                        style={{
+                          position: 'absolute',
+                          top: '50%',
+                          right: '0px',
+                          transform: 'translateY(-50%)',
+                          width: '6px',
+                          height: '28px',
+                          background: '#2b579a',
+                          cursor: 'ew-resize',
+                          zIndex: 30,
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
-    );
-  };
 
-  const additionalImgs = product.additionalImages || [];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
       {/* 
-        THE SINGLE UNIFIED REFERENCE CANVAS:
-        Picture 1 and all additional images share this EXACT SAME container.
-        Zero separate divisions.
-        Images can be moved into any blank space across this entire area.
+        ========================================================================
+        BOTTOM CONTROLS: Upload photo to canvas & quick split presets
+        ========================================================================
       */}
-      <div
-        ref={canvasRef}
-        onClick={() => {
-          if (!activeAction) setSelectedId(null);
-        }}
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: height || '380px',
-          background: '#ffffff',
-          border: '1.5px solid #d1d5db',
-          borderRadius: '2px',
-          overflow: 'hidden',
-          userSelect: 'none',
-          boxSizing: 'border-box',
-        }}
-      >
-        {/* Render Picture 1 (Primary Drawing) */}
-        {renderImageFrame('primary')}
-
-        {/* Render All Additional Images in the same canvas */}
-        {additionalImgs.map((img) => renderImageFrame(img.id))}
-      </div>
-
-      {/* Upload Control: Directly underneath the unified canvas */}
       {!readOnly && (
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: '10px' }}>
+        <div
+          className="no-print"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: '11px',
+            marginTop: '2px',
+          }}
+        >
+          {/* Upload Button */}
           <label
             style={{
-              fontSize: '11px',
               color: '#2b579a',
               fontWeight: 700,
               cursor: 'pointer',
@@ -698,11 +750,11 @@ export default function UnifiedReferenceCanvas({
               gap: '4px',
               background: '#f0f7ff',
               border: '1px solid #bfdbfe',
-              padding: '4px 10px',
+              padding: '3px 9px',
               borderRadius: '2px',
             }}
           >
-            <span>+ Upload Photo to Canvas (Picture - {additionalImgs.length + 2})</span>
+            <span>+ Add Photo to Canvas (Picture - {additionalImgs.length + 2})</span>
             <input
               type="file"
               accept="image/*"
@@ -710,9 +762,42 @@ export default function UnifiedReferenceCanvas({
               onChange={(e) => onAddAdditionalImage && onAddAdditionalImage(product.id, e)}
             />
           </label>
-          <span style={{ fontSize: '10px', color: '#777' }}>
-            All photos share this canvas. Resize or drag any photo into the blank space.
-          </span>
+
+          {/* Quick Layout Presets when multiple images exist */}
+          {hasAdditional && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ color: '#666', fontSize: '10px' }}>Split:</span>
+              {[
+                { label: '50 / 50', val: 50 },
+                { label: '60 / 40', val: 60 },
+                { label: '70 / 30', val: 70 },
+              ].map((p) => (
+                <button
+                  key={p.val}
+                  type="button"
+                  onClick={() => {
+                    setLocalSplit(p.val);
+                    onUpdateProduct(product.id, { canvasSplit: p.val });
+                  }}
+                  style={{
+                    background: localSplit === p.val ? '#2b579a' : '#f3f4f6',
+                    color: localSplit === p.val ? '#ffffff' : '#333333',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '2px',
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+              <span style={{ color: '#888', fontSize: '10px', marginLeft: '6px' }}>
+                (or drag the middle divider)
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
