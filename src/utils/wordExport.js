@@ -627,6 +627,10 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
     const scale1 = img1?.scale || 1;
     const scale2 = img2?.scale || 1;
 
+    const maxTravelX1 = Math.max(1, 100 - scale1 * 100);
+    const relativeX1 = (img1?.posX !== null && img1?.posX !== undefined ? img1.posX : maxTravelX1 / 2) / maxTravelX1;
+    const align1 = relativeX1 < 0.25 ? AlignmentType.LEFT : relativeX1 > 0.75 ? AlignmentType.RIGHT : AlignmentType.CENTER;
+
     const cell1Children = [
       new Paragraph({
         children: [
@@ -643,6 +647,7 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
     if (bytes1) {
       cell1Children.push(
         new Paragraph({
+          alignment: align1,
           children: [
             new ImageRun({
               data: bytes1,
@@ -666,6 +671,10 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
     ];
 
     if (img2) {
+      const maxTravelX2 = Math.max(1, 100 - scale2 * 100);
+      const relativeX2 = (img2?.posX !== null && img2?.posX !== undefined ? img2.posX : maxTravelX2 / 2) / maxTravelX2;
+      const align2 = relativeX2 < 0.25 ? AlignmentType.LEFT : relativeX2 > 0.75 ? AlignmentType.RIGHT : AlignmentType.CENTER;
+
       const cell2Children = [
         new Paragraph({
           children: [
@@ -682,6 +691,7 @@ async function buildAdditionalImagesWordTable(additionalImages = []) {
       if (bytes2) {
         cell2Children.push(
           new Paragraph({
+            alignment: align2,
             children: [
               new ImageRun({
                 data: bytes2,
@@ -945,6 +955,10 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
     const imgWidth = Math.round(baseW * imgScale);
     const imgHeight = Math.round(baseH * imgScale);
 
+    const maxTravelX = Math.max(1, 100 - imgScale * 100);
+    const relativeX = (product.photoPosX !== null && product.photoPosX !== undefined ? product.photoPosX : maxTravelX / 2) / maxTravelX;
+    const imgAlignment = relativeX < 0.25 ? AlignmentType.LEFT : relativeX > 0.75 ? AlignmentType.RIGHT : AlignmentType.CENTER;
+
     // 2. Build 2-column Word table for Landscape (or stacked for Portrait)
     const leftChildren = [
       new Paragraph({
@@ -959,6 +973,7 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         spacing: { after: 120 },
       }),
       new Paragraph({
+        alignment: imgAlignment,
         children: [
           new ImageRun({
             data: canvasBytes,

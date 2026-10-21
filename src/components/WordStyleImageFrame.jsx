@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 
 /**
  * WordStyleImageFrame:
- * Provides direct, in-screen Microsoft Word & WordPress style interactive image selection,
- * 8-handle resizing (reduce/enlarge size), boundary cropping, and drag-to-pan repositioning
- * for ALL images without any obscuring popups.
+ * Provides direct, in-screen Microsoft Word style interactive image selection,
+ * 8-handle resizing (reduce/enlarge size), boundary cropping, and free drag-to-move repositioning
+ * across the entire available workspace area.
+ * STRICT REQUIREMENT: NO floating popup windows or hovering bars.
  */
 export default function WordStyleImageFrame({
   imageSrc,
@@ -12,11 +13,14 @@ export default function WordStyleImageFrame({
   label = 'Picture',
   panX = 50,
   panY = 50,
+  posX = null,
+  posY = null,
   zoom = 1,
   scale = 1, // Size scale: 1 = 100%, 0.75 = 75%, 0.5 = 50%, etc.
   fit = 'cover',
   isLocked = false,
   readOnly = false,
+  activeTool = null,
   onUpdateCrop,
   onResetOriginal,
   onToggleFit,
@@ -24,43 +28,54 @@ export default function WordStyleImageFrame({
   onRemove,
   onMoveEarlier,
   onMoveLater,
-  extraToolbar = null,
-  children = null, // Can wrap AnnotationCanvas or custom content
+  children = null, // Wraps AnnotationCanvas for Picture 1
   height = '100%',
   style = {},
 }) {
   const containerRef = useRef(null);
   const [isSelected, setIsSelected] = useState(false);
-  const [mode, setMode] = useState('resize'); // 'resize' | 'crop' | 'pan'
-  const [localPan, setLocalPan] = useState({ x: panX, y: panY });
-  const [localZoom, setLocalZoom] = useState(zoom);
-  const [localScale, setLocalScale] = useState(scale || 1);
+
+  // Scale and Position state
+  const initialScale = typeof scale === 'number' ? scale : 1;
+  const [localScale, setLocalScale] = useState(initialScale);
+
+  // If posX/posY are not provided, default to centering the image based on scale
+  const defaultPosX = posX !== null && posX !== undefined ? posX : Math.max(0, (1 - initialScale) * 50);
+  const defaultPosY = posY !== null && posY !== undefined ? posY : Math.max(0, (1 - initialScale) * 50);
+  const [localPos, setLocalPos] = useState({ x: defaultPosX, y: defaultPosY });
+
+  const [localPan, setLocalPan] = useState({ x: panX ?? 50, y: panY ?? 50 });
   const [cropInsets, setCropInsets] = useState({ top: 0, right: 0, bottom: 0, left: 0 });
-  const [isDraggingHandle, setIsDraggingHandle] = useState(null);
-  const [isPanning, setIsPanning] = useState(false);
+
+  const [isMoving, setIsMoving] = useState(false);
+  const [isDraggingHandle, setIsDraggingHandle] = useState(null); // 'tl'|'tr'|'br'|'bl'|'t'|'b'|'l'|'r'
+
   const dragStartRef = useRef({
-    x: 0,
-    y: 0,
-    insets: { top: 0, right: 0, bottom: 0, left: 0 },
-    pan: { x: 50, y: 50 },
+    startX: 0,
+    startY: 0,
+    pos: { x: 0, y: 0 },
     scale: 1,
+    insets: { top: 0, right: 0, bottom: 0, left: 0 },
   });
 
+  // Sync props when updated externally
   useEffect(() => {
-    setLocalPan({ x: panX, y: panY });
-  }, [panX, panY]);
-
-  useEffect(() => {
-    setLocalZoom(zoom);
-  }, [zoom]);
-
-  useEffect(() => {
-    if (scale !== undefined) {
+    if (scale !== undefined && scale !== null) {
       setLocalScale(scale);
     }
   }, [scale]);
 
-  // Click outside to commit and deselect
+  useEffect(() => {
+    if (posX !== undefined && posX !== null && posY !== undefined && posY !== null) {
+      setLocalPos({ x: posX, y: posY });
+    }
+  }, [posX, posY]);
+
+  useEffect(() => {
+    setLocalPan({ x: panX ?? 50, y: panY ?? 50 });
+  }, [panX, panY]);
+
+  // Click outside to deselect and commit changes
   useEffect(() => {
     const handleDocumentClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
@@ -74,78 +89,144 @@ export default function WordStyleImageFrame({
     return () => {
       document.removeEventListener('mousedown', handleDocumentClick);
     };
-  }, [isSelected, localPan, localZoom, localScale, cropInsets]);
+  }, [isSelected, localPos, localScale, cropInsets, localPan]);
 
-  // Mouse move and mouse up handlers for handle dragging and panning
+  // Keyboard Nudge (Arrow Keys) when image is selected
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isSelected || readOnly || isLocked) return;
+      if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 1;
+        const maxPosX = Math.max(0, 100 - Math.round(localScale * 100));
+        const maxPosY = Math.max(0, 100 - Math.round(localScale * 100));
+
+        let nextX = localPos.x;
+        let nextY = localPos.y;
+
+        if (e.key === 'ArrowLeft') nextX = Math.max(0, nextX - step);
+        if (e.key === 'ArrowRight') nextX = Math.min(maxPosX, nextX + step);
+        if (e.key === 'ArrowUp') nextY = Math.max(0, nextY - step);
+        if (e.key === 'ArrowDown') nextY = Math.min(maxPosY, nextY + step);
+
+        const updatedPos = { x: Math.round(nextX * 10) / 10, y: Math.round(nextY * 10) / 10 };
+        setLocalPos(updatedPos);
+
+        if (onUpdateCrop) {
+          onUpdateCrop({
+            position: updatedPos,
+            scale: localScale,
+            pan: localPan,
+          });
+        }
+      } else if (e.key === 'Escape') {
+        setIsSelected(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSelected, localPos, localScale, readOnly, isLocked, localPan, onUpdateCrop]);
+
+  // Mouse Move & Mouse Up handlers for Moving, Resizing, and Cropping
   useEffect(() => {
     const handleMouseMove = (e) => {
-      if (!isSelected) return;
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaXPercent = ((e.clientX - dragStartRef.current.startX) / rect.width) * 100;
+      const deltaYPercent = ((e.clientY - dragStartRef.current.startY) / rect.height) * 100;
 
-      if (isDraggingHandle && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
-        const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
+      // 1. FREE MOVE: Dragging image body moves it anywhere within the container area
+      if (isMoving) {
+        const maxPosX = Math.max(0, 100 - Math.round(localScale * 100));
+        const maxPosY = Math.max(0, 100 - Math.round(localScale * 100));
 
-        // If dragging a corner handle (tl, tr, br, bl), RESIZE / SCALE the image size
-        const isCornerHandle = ['tl', 'tr', 'br', 'bl'].includes(isDraggingHandle);
+        const nextX = Math.max(0, Math.min(maxPosX, dragStartRef.current.pos.x + deltaXPercent));
+        const nextY = Math.max(0, Math.min(maxPosY, dragStartRef.current.pos.y + deltaYPercent));
 
-        if (mode === 'resize' || (mode !== 'crop' && isCornerHandle)) {
-          // Calculate scale change from corner drag
-          let scaleDelta = 0;
-          if (isDraggingHandle === 'br') {
-            scaleDelta = (deltaX + deltaY) / 160;
-          } else if (isDraggingHandle === 'tl') {
-            scaleDelta = -(deltaX + deltaY) / 160;
-          } else if (isDraggingHandle === 'tr') {
-            scaleDelta = (deltaX - deltaY) / 160;
-          } else if (isDraggingHandle === 'bl') {
-            scaleDelta = (-deltaX + deltaY) / 160;
-          }
-
-          const nextScale = Math.max(0.25, Math.min(1.2, dragStartRef.current.scale + scaleDelta));
-          setLocalScale(Math.round(nextScale * 100) / 100);
-        } else {
-          // Crop mode (or edge handles): adjust crop insets
-          const init = dragStartRef.current.insets;
-          let nextInsets = { ...cropInsets };
-
-          if (isDraggingHandle.includes('t')) {
-            nextInsets.top = Math.max(0, Math.min(80, init.top + deltaY));
-          }
-          if (isDraggingHandle.includes('b')) {
-            nextInsets.bottom = Math.max(0, Math.min(80, init.bottom - deltaY));
-          }
-          if (isDraggingHandle.includes('l')) {
-            nextInsets.left = Math.max(0, Math.min(80, init.left + deltaX));
-          }
-          if (isDraggingHandle.includes('r')) {
-            nextInsets.right = Math.max(0, Math.min(80, init.right - deltaX));
-          }
-
-          setCropInsets(nextInsets);
-        }
-      } else if (isPanning && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const deltaX = ((e.clientX - dragStartRef.current.x) / rect.width) * 100;
-        const deltaY = ((e.clientY - dragStartRef.current.y) / rect.height) * 100;
-
-        setLocalPan({
-          x: Math.max(0, Math.min(100, dragStartRef.current.pan.x - deltaX)),
-          y: Math.max(0, Math.min(100, dragStartRef.current.pan.y - deltaY)),
+        setLocalPos({
+          x: Math.round(nextX * 10) / 10,
+          y: Math.round(nextY * 10) / 10,
         });
+      }
+
+      // 2. CORNER HANDLES: Resize/Scale image size
+      else if (isDraggingHandle && ['tl', 'tr', 'br', 'bl'].includes(isDraggingHandle)) {
+        let scaleDelta = 0;
+        if (isDraggingHandle === 'br') {
+          scaleDelta = ((deltaXPercent + deltaYPercent) / 2) / 80;
+        } else if (isDraggingHandle === 'tl') {
+          scaleDelta = -((deltaXPercent + deltaYPercent) / 2) / 80;
+        } else if (isDraggingHandle === 'tr') {
+          scaleDelta = ((deltaXPercent - deltaYPercent) / 2) / 80;
+        } else if (isDraggingHandle === 'bl') {
+          scaleDelta = ((-deltaXPercent + deltaYPercent) / 2) / 80;
+        }
+
+        const nextScale = Math.max(0.25, Math.min(1.0, dragStartRef.current.scale + scaleDelta));
+        const roundedScale = Math.round(nextScale * 100) / 100;
+        setLocalScale(roundedScale);
+
+        // Adjust position so image stays within container bounds
+        const maxPosX = Math.max(0, 100 - Math.round(roundedScale * 100));
+        const maxPosY = Math.max(0, 100 - Math.round(roundedScale * 100));
+        setLocalPos((prev) => ({
+          x: Math.min(maxPosX, prev.x),
+          y: Math.min(maxPosY, prev.y),
+        }));
+      }
+
+      // 3. EDGE HANDLES: Crop image borders
+      else if (isDraggingHandle && ['t', 'b', 'l', 'r'].includes(isDraggingHandle)) {
+        const init = dragStartRef.current.insets;
+        let nextInsets = { ...cropInsets };
+
+        if (isDraggingHandle === 't') {
+          nextInsets.top = Math.max(0, Math.min(75, init.top + deltaYPercent));
+        }
+        if (isDraggingHandle === 'b') {
+          nextInsets.bottom = Math.max(0, Math.min(75, init.bottom - deltaYPercent));
+        }
+        if (isDraggingHandle === 'l') {
+          nextInsets.left = Math.max(0, Math.min(75, init.left + deltaXPercent));
+        }
+        if (isDraggingHandle === 'r') {
+          nextInsets.right = Math.max(0, Math.min(75, init.right - deltaXPercent));
+        }
+
+        setCropInsets(nextInsets);
       }
     };
 
     const handleMouseUp = () => {
-      if (isDraggingHandle) {
-        setIsDraggingHandle(null);
+      if (isMoving) {
+        setIsMoving(false);
+        if (onUpdateCrop) {
+          onUpdateCrop({
+            position: localPos,
+            scale: localScale,
+            pan: localPan,
+          });
+        }
       }
-      if (isPanning) {
-        setIsPanning(false);
+
+      if (isDraggingHandle) {
+        const wasCropHandle = ['t', 'b', 'l', 'r'].includes(isDraggingHandle);
+        setIsDraggingHandle(null);
+
+        if (wasCropHandle) {
+          handleCommitChanges();
+        } else if (onUpdateCrop) {
+          onUpdateCrop({
+            position: localPos,
+            scale: localScale,
+            pan: localPan,
+          });
+        }
       }
     };
 
-    if (isDraggingHandle || isPanning) {
+    if (isMoving || isDraggingHandle) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -154,38 +235,43 @@ export default function WordStyleImageFrame({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingHandle, isPanning, isSelected, cropInsets, mode]);
+  }, [isMoving, isDraggingHandle, localScale, localPos, cropInsets, localPan, onUpdateCrop]);
 
+  // Start moving the image body
+  const handleStartMove = (e) => {
+    if (readOnly || isLocked) return;
+    // If an annotation tool is active (e.g. dimension line, box), don't hijack drag
+    if (activeTool && activeTool !== 'select') return;
+
+    e.preventDefault();
+    setIsSelected(true);
+    setIsMoving(true);
+
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      pos: { ...localPos },
+      scale: localScale,
+      insets: { ...cropInsets },
+    };
+  };
+
+  // Start dragging a resize (corner) or crop (edge) handle
   const handleStartHandleDrag = (handleName, e) => {
     e.stopPropagation();
     e.preventDefault();
     setIsDraggingHandle(handleName);
+
     dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      insets: { ...cropInsets },
-      pan: { ...localPan },
+      startX: e.clientX,
+      startY: e.clientY,
+      pos: { ...localPos },
       scale: localScale,
+      insets: { ...cropInsets },
     };
   };
 
-  const handleStartPan = (e) => {
-    if (readOnly || isLocked) return;
-    if (mode === 'pan' || e.shiftKey) {
-      e.preventDefault();
-      setIsPanning(true);
-      dragStartRef.current = {
-        x: e.clientX,
-        y: e.clientY,
-        insets: { ...cropInsets },
-        pan: { ...localPan },
-        scale: localScale,
-      };
-    }
-  };
-
   const handleCommitChanges = async () => {
-    // If insets were adjusted, bake cropped image onto canvas
     let bakedUrl = null;
     if (
       cropInsets.top > 0 ||
@@ -200,9 +286,9 @@ export default function WordStyleImageFrame({
     if (onUpdateCrop) {
       onUpdateCrop({
         croppedUrl: bakedUrl,
+        position: localPos,
         scale: localScale,
         pan: localPan,
-        zoom: localZoom,
       });
     }
   };
@@ -234,29 +320,8 @@ export default function WordStyleImageFrame({
     });
   };
 
-  const handleReset = () => {
-    setCropInsets({ top: 0, right: 0, bottom: 0, left: 0 });
-    setLocalPan({ x: 50, y: 50 });
-    setLocalZoom(1);
-    setLocalScale(1);
-    if (onResetOriginal) {
-      onResetOriginal();
-    }
-  };
-
-  // Quick preset scale buttons (e.g. reduce size to 75%, 50%, etc.)
-  const handleSetScale = (newScale) => {
-    setLocalScale(newScale);
-    if (onUpdateCrop) {
-      onUpdateCrop({
-        scale: newScale,
-        pan: localPan,
-        zoom: localZoom,
-      });
-    }
-  };
-
-  const scalePercent = Math.round(localScale * 100);
+  const imageWidthPercent = Math.round(localScale * 100);
+  const imageHeightPercent = Math.round(localScale * 100);
 
   return (
     <div
@@ -270,272 +335,43 @@ export default function WordStyleImageFrame({
         position: 'relative',
         width: '100%',
         height: height || '100%',
-        background: '#fafafa',
+        minHeight: '220px',
+        background: '#ffffff',
         boxSizing: 'border-box',
-        overflow: isSelected ? 'visible' : 'hidden',
-        border: '1px solid #d1d5db',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        overflow: 'hidden',
+        border: isSelected ? '1px dashed #2b579a' : '1px solid #e5e7eb',
+        borderRadius: '2px',
         userSelect: 'none',
         ...style,
       }}
     >
-      {/* WordPress & Word Style Floating Ribbon Toolbar (when selected) */}
-      {isSelected && !readOnly && (
-        <div
-          className="no-print"
-          style={{
-            position: 'absolute',
-            top: '-42px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(24, 24, 27, 0.96)',
-            backdropFilter: 'blur(6px)',
-            color: '#ffffff',
-            padding: '4px 10px',
-            borderRadius: '24px',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            zIndex: 100,
-            fontSize: '10px',
-            whiteSpace: 'nowrap',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span style={{ fontWeight: 700, color: '#93c5fd', padding: '0 4px', borderRight: '1px solid #444' }}>
-            {label}
-          </span>
+      {/* 
+        NO FLOATING POPUP BAR / WINDOWS AS STRICTLY REQUESTED BY USER.
+        Interaction is 100% direct on the image:
+        - Click & Drag body: MOVES image across the entire workspace area
+        - Drag corner handles: RESIZES / SCALES image size proportionally
+        - Drag edge handles: CROPS borders
+      */}
 
-          {/* Mode Selector */}
-          <button
-            type="button"
-            onClick={() => setMode('resize')}
-            style={{
-              background: mode === 'resize' ? '#2b579a' : 'transparent',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              fontWeight: mode === 'resize' ? 700 : 400,
-              cursor: 'pointer',
-            }}
-            title="Drag corner handles to reduce/enlarge image size"
-          >
-            ↔️ Resize Size
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMode('crop')}
-            style={{
-              background: mode === 'crop' ? '#2b579a' : 'transparent',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              fontWeight: mode === 'crop' ? 700 : 400,
-              cursor: 'pointer',
-            }}
-            title="Drag edge handles to crop image borders"
-          >
-            ✂️ Crop
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMode('pan')}
-            style={{
-              background: mode === 'pan' ? '#2b579a' : 'transparent',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              fontWeight: mode === 'pan' ? 700 : 400,
-              cursor: 'pointer',
-            }}
-            title="Click and drag image to move/pan inside frame"
-          >
-            ✋ Move
-          </button>
-
-          {/* Quick Size Reduction Controls (Word/WordPress style) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', borderLeft: '1px solid #444', paddingLeft: '5px' }}>
-            <span style={{ color: '#aaa', fontSize: '9px', fontWeight: 600 }}>Size:</span>
-            <button
-              type="button"
-              onClick={() => handleSetScale(Math.max(0.3, localScale - 0.1))}
-              style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '2px', padding: '1px 5px', fontSize: '9px', cursor: 'pointer' }}
-              title="Reduce image size"
-            >
-              -
-            </button>
-            <span style={{ minWidth: '32px', textAlign: 'center', fontWeight: 700, color: '#fef08a' }}>
-              {scalePercent}%
-            </span>
-            <button
-              type="button"
-              onClick={() => handleSetScale(Math.min(1.2, localScale + 0.1))}
-              style={{ background: '#333', color: '#fff', border: 'none', borderRadius: '2px', padding: '1px 5px', fontSize: '9px', cursor: 'pointer' }}
-              title="Increase image size"
-            >
-              +
-            </button>
-
-            {/* Quick Presets */}
-            <button
-              type="button"
-              onClick={() => handleSetScale(0.5)}
-              style={{
-                background: scalePercent === 50 ? '#2b579a' : '#333',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '1px 5px',
-                fontSize: '9px',
-                cursor: 'pointer',
-              }}
-              title="Reduce size to 50%"
-            >
-              50%
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetScale(0.75)}
-              style={{
-                background: scalePercent === 75 ? '#2b579a' : '#333',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '1px 5px',
-                fontSize: '9px',
-                cursor: 'pointer',
-              }}
-              title="Reduce size to 75%"
-            >
-              75%
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSetScale(1)}
-              style={{
-                background: scalePercent === 100 ? '#2b579a' : '#333',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '3px',
-                padding: '1px 5px',
-                fontSize: '9px',
-                cursor: 'pointer',
-              }}
-              title="Full size (100%)"
-            >
-              100%
-            </button>
-          </div>
-
-          {onToggleFit && (
-            <button
-              type="button"
-              onClick={onToggleFit}
-              style={{
-                background: 'transparent',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '12px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                cursor: 'pointer',
-              }}
-              title="Toggle Fill Frame (No blank space) or Fit"
-            >
-              {fit === 'cover' ? '🔲 Fill' : '🖼 Fit'}
-            </button>
-          )}
-
-          {(originalSrc || localPan.x !== 50 || localPan.y !== 50 || localZoom !== 1 || localScale !== 1 || cropInsets.top > 0) && (
-            <button
-              type="button"
-              onClick={handleReset}
-              style={{
-                background: 'transparent',
-                color: '#f87171',
-                border: 'none',
-                borderRadius: '12px',
-                padding: '2px 6px',
-                fontSize: '10px',
-                cursor: 'pointer',
-              }}
-              title="Reset size, crop, and position"
-            >
-              ↺ Reset
-            </button>
-          )}
-
-          {onToggleLock && (
-            <button
-              type="button"
-              onClick={onToggleLock}
-              style={{
-                background: 'transparent',
-                color: '#ffffff',
-                border: 'none',
-                padding: '2px 4px',
-                fontSize: '10px',
-                cursor: 'pointer',
-              }}
-              title={isLocked ? 'Locked' : 'Unlocked'}
-            >
-              {isLocked ? '🔒' : '🔓'}
-            </button>
-          )}
-
-          {extraToolbar}
-
-          <button
-            type="button"
-            onClick={() => {
-              handleCommitChanges();
-              setIsSelected(false);
-            }}
-            style={{
-              background: '#16a34a',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '12px',
-              padding: '2px 10px',
-              fontSize: '10px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              marginLeft: '4px',
-            }}
-          >
-            ✓ Done
-          </button>
-        </div>
-      )}
-
-      {/* Resizable Image Container Box: scales with localScale */}
+      {/* Resizable, Croppable & Movable Image Frame */}
       <div
+        onMouseDown={handleStartMove}
         style={{
-          width: `${Math.round(localScale * 100)}%`,
-          height: `${Math.round(localScale * 100)}%`,
-          maxWidth: '100%',
-          maxHeight: '100%',
-          position: 'relative',
-          transition: isDraggingHandle ? 'none' : 'width 0.15s ease, height 0.15s ease',
-          border: isSelected ? '2px solid #2b579a' : 'none',
+          position: 'absolute',
+          left: `${localPos.x}%`,
+          top: `${localPos.y}%`,
+          width: `${imageWidthPercent}%`,
+          height: `${imageHeightPercent}%`,
           boxSizing: 'border-box',
-          cursor: isSelected ? (mode === 'pan' ? (isPanning ? 'grabbing' : 'grab') : 'default') : 'pointer',
+          border: isSelected ? '2px solid #2b579a' : 'none',
+          boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.8), 0 2px 8px rgba(0,0,0,0.15)' : 'none',
+          cursor: isSelected ? (isMoving ? 'grabbing' : 'move') : 'pointer',
+          transition: isMoving || isDraggingHandle ? 'none' : 'box-shadow 0.15s ease',
         }}
+        title={isSelected ? 'Click and drag to move image anywhere | Drag handles to resize or crop' : 'Click to select image'}
       >
-        {/* Main Image Viewport Area (Zero Blank Spaces) */}
+        {/* Main Image Viewport Area with Crop Clipping */}
         <div
-          onMouseDown={handleStartPan}
           style={{
             width: '100%',
             height: '100%',
@@ -558,7 +394,7 @@ export default function WordStyleImageFrame({
                 height: '100%',
                 objectFit: fit || 'cover',
                 objectPosition: `${localPan.x}% ${localPan.y}%`,
-                transform: localZoom !== 1 ? `scale(${localZoom})` : 'none',
+                transform: zoom !== 1 ? `scale(${zoom})` : 'none',
                 display: 'block',
                 pointerEvents: 'none',
               }}
@@ -568,54 +404,24 @@ export default function WordStyleImageFrame({
               No image attached
             </div>
           )}
-        </div>
 
-        {/* Word-Style 8 Circular Drag Handles (Active when Selected) */}
-        {isSelected && !readOnly && (
-          <>
-            {/* Top Rotation Stem and Icon */}
+          {/* Shaded mask over cropped areas during edge drag */}
+          {(cropInsets.top > 0 || cropInsets.bottom > 0 || cropInsets.left > 0 || cropInsets.right > 0) && (
             <div
               style={{
                 position: 'absolute',
-                top: '-20px',
-                left: '50%',
-                width: '1px',
-                height: '20px',
-                background: '#2b579a',
+                inset: 0,
+                background: 'rgba(0, 0, 0, 0.35)',
                 pointerEvents: 'none',
-                zIndex: 30,
               }}
             />
-            <div
-              style={{
-                position: 'absolute',
-                top: '-32px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '18px',
-                height: '18px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                border: '1.5px solid #2b579a',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '11px',
-                cursor: 'grab',
-                zIndex: 35,
-                color: '#2b579a',
-              }}
-              title="Rotate / Pan"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMode(mode === 'pan' ? 'resize' : 'pan');
-              }}
-            >
-              ↻
-            </div>
+          )}
+        </div>
 
-            {/* 1. Top-Left Handle (Drag to reduce/enlarge size) */}
+        {/* Word-Style 8 Drag Handles (Visible when image is Selected) */}
+        {isSelected && !readOnly && !isLocked && (
+          <>
+            {/* 1. Corner Handle: Top-Left (Resize) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('tl', e)}
               style={{
@@ -624,37 +430,36 @@ export default function WordStyleImageFrame({
                 left: '-6px',
                 width: '12px',
                 height: '12px',
-                borderRadius: '50%',
                 background: '#ffffff',
                 border: '2px solid #2b579a',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+                borderRadius: '1px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'nwse-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
-              title="Drag to resize / reduce image size"
+              title="Drag corner to resize image"
             />
 
-            {/* 2. Top-Center Handle */}
+            {/* 2. Edge Handle: Top-Center (Crop Top) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('t', e)}
               style={{
                 position: 'absolute',
-                top: '-5px',
+                top: '-4px',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                border: '1.5px solid #2b579a',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                width: '24px',
+                height: '6px',
+                background: '#2b579a',
+                borderRadius: '2px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'ns-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
               title="Drag to crop top edge"
             />
 
-            {/* 3. Top-Right Handle (Drag to reduce/enlarge size) */}
+            {/* 3. Corner Handle: Top-Right (Resize) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('tr', e)}
               style={{
@@ -663,37 +468,36 @@ export default function WordStyleImageFrame({
                 right: '-6px',
                 width: '12px',
                 height: '12px',
-                borderRadius: '50%',
                 background: '#ffffff',
                 border: '2px solid #2b579a',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+                borderRadius: '1px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'nesw-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
-              title="Drag to resize / reduce image size"
+              title="Drag corner to resize image"
             />
 
-            {/* 4. Right-Center Handle */}
+            {/* 4. Edge Handle: Right-Center (Crop Right) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('r', e)}
               style={{
                 position: 'absolute',
                 top: '50%',
-                right: '-5px',
+                right: '-4px',
                 transform: 'translateY(-50%)',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                border: '1.5px solid #2b579a',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                width: '6px',
+                height: '24px',
+                background: '#2b579a',
+                borderRadius: '2px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'ew-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
               title="Drag to crop right edge"
             />
 
-            {/* 5. Bottom-Right Handle (Drag to reduce/enlarge size) */}
+            {/* 5. Corner Handle: Bottom-Right (Resize) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('br', e)}
               style={{
@@ -702,37 +506,36 @@ export default function WordStyleImageFrame({
                 right: '-6px',
                 width: '12px',
                 height: '12px',
-                borderRadius: '50%',
                 background: '#ffffff',
                 border: '2px solid #2b579a',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+                borderRadius: '1px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'nwse-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
-              title="Drag to resize / reduce image size"
+              title="Drag corner to resize image"
             />
 
-            {/* 6. Bottom-Center Handle */}
+            {/* 6. Edge Handle: Bottom-Center (Crop Bottom) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('b', e)}
               style={{
                 position: 'absolute',
-                bottom: '-5px',
+                bottom: '-4px',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                border: '1.5px solid #2b579a',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                width: '24px',
+                height: '6px',
+                background: '#2b579a',
+                borderRadius: '2px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'ns-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
               title="Drag to crop bottom edge"
             />
 
-            {/* 7. Bottom-Left Handle (Drag to reduce/enlarge size) */}
+            {/* 7. Corner Handle: Bottom-Left (Resize) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('bl', e)}
               style={{
@@ -741,115 +544,37 @@ export default function WordStyleImageFrame({
                 left: '-6px',
                 width: '12px',
                 height: '12px',
-                borderRadius: '50%',
                 background: '#ffffff',
                 border: '2px solid #2b579a',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+                borderRadius: '1px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'nesw-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
-              title="Drag to resize / reduce image size"
+              title="Drag corner to resize image"
             />
 
-            {/* 8. Left-Center Handle */}
+            {/* 8. Edge Handle: Left-Center (Crop Left) */}
             <div
               onMouseDown={(e) => handleStartHandleDrag('l', e)}
               style={{
                 position: 'absolute',
                 top: '50%',
-                left: '-5px',
+                left: '-4px',
                 transform: 'translateY(-50%)',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                border: '1.5px solid #2b579a',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.35)',
+                width: '6px',
+                height: '24px',
+                background: '#2b579a',
+                borderRadius: '2px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
                 cursor: 'ew-resize',
-                zIndex: 40,
+                zIndex: 30,
               }}
               title="Drag to crop left edge"
             />
           </>
         )}
       </div>
-
-      {/* Word-Style Top Label Tag (when not selected) */}
-      {!isSelected && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '6px',
-            left: '6px',
-            background: 'rgba(255, 255, 255, 0.92)',
-            padding: '2px 6px',
-            fontSize: '9px',
-            fontWeight: 700,
-            color: '#333333',
-            border: '1px solid #d1d5db',
-            borderRadius: '2px',
-            pointerEvents: 'none',
-            zIndex: 10,
-          }}
-        >
-          {label} {scalePercent !== 100 ? `(${scalePercent}%)` : ''}
-        </div>
-      )}
-
-      {/* Reorder / Delete shortcuts in top-right when hovering (hidden on print) */}
-      {!isSelected && !readOnly && !isLocked && (
-        <div
-          className="no-print"
-          style={{
-            position: 'absolute',
-            top: '6px',
-            right: '6px',
-            display: 'flex',
-            gap: '3px',
-            zIndex: 15,
-          }}
-        >
-          {onMoveEarlier && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMoveEarlier();
-              }}
-              style={{ background: '#fff', border: '1px solid #ccc', padding: '1px 4px', fontSize: '8px', cursor: 'pointer', borderRadius: '2px' }}
-              title="Move earlier"
-            >
-              ◀
-            </button>
-          )}
-          {onMoveLater && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onMoveLater();
-              }}
-              style={{ background: '#fff', border: '1px solid #ccc', padding: '1px 4px', fontSize: '8px', cursor: 'pointer', borderRadius: '2px' }}
-              title="Move later"
-            >
-              ▶
-            </button>
-          )}
-          {onRemove && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove();
-              }}
-              style={{ background: '#fff', border: '1px solid #ccc', color: '#ff5555', padding: '1px 4px', fontSize: '9px', cursor: 'pointer', borderRadius: '2px' }}
-              title="Remove view"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

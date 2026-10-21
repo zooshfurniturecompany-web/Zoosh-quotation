@@ -751,6 +751,8 @@ export default function ReviewSheet({
             photoPan: { x: 50, y: 50 },
             photoZoom: 1,
             photoScale: 1,
+            photoPosX: null,
+            photoPosY: null,
           };
         }
         return p;
@@ -770,6 +772,8 @@ export default function ReviewSheet({
             pan: { x: 50, y: 50 },
             zoom: 1,
             scale: 1,
+            posX: null,
+            posY: null,
           };
         }
         return img;
@@ -789,7 +793,7 @@ export default function ReviewSheet({
     setInlineCropTarget(null);
   };
 
-  const handleApplyFrameCrop = async (productId, imageType, imageId, { croppedUrl, pan, zoom, scale }) => {
+  const handleApplyFrameCrop = async (productId, imageType, imageId, { croppedUrl, pan, zoom, scale, position }) => {
     const prod = doc.products.find((p) => p.id === productId);
     if (!prod) return;
 
@@ -803,6 +807,8 @@ export default function ReviewSheet({
             photoPan: pan || p.photoPan || { x: 50, y: 50 },
             photoZoom: zoom !== undefined ? zoom : (p.photoZoom ?? 1),
             photoScale: scale !== undefined ? scale : (p.photoScale ?? 1),
+            photoPosX: position?.x !== undefined ? position.x : (p.photoPosX ?? null),
+            photoPosY: position?.y !== undefined ? position.y : (p.photoPosY ?? null),
           };
         }
         return p;
@@ -816,7 +822,7 @@ export default function ReviewSheet({
           ? 'Cropped Reference Image'
           : scale !== undefined
           ? `Updated Reference Image size (${Math.round((scale || 1) * 100)}%)`
-          : 'Updated image position',
+          : 'Updated Reference Image',
         'success'
       );
     } else if (imageType === 'additional') {
@@ -829,6 +835,8 @@ export default function ReviewSheet({
             pan: pan || img.pan || { x: 50, y: 50 },
             zoom: zoom !== undefined ? zoom : (img.zoom ?? 1),
             scale: scale !== undefined ? scale : (img.scale ?? 1),
+            posX: position?.x !== undefined ? position.x : (img.posX ?? null),
+            posY: position?.y !== undefined ? position.y : (img.posY ?? null),
           };
         }
         return img;
@@ -848,7 +856,7 @@ export default function ReviewSheet({
           ? 'Cropped additional view'
           : scale !== undefined
           ? `Updated view size (${Math.round((scale || 1) * 100)}%)`
-          : 'Updated view position',
+          : 'Updated view',
         'success'
       );
     }
@@ -1756,11 +1764,14 @@ export default function ReviewSheet({
                           label="PICTURE - 1: QUOTATION REFERENCE & PRODUCTION DRAWING"
                           panX={product.photoPan?.x ?? 50}
                           panY={product.photoPan?.y ?? 50}
+                          posX={product.photoPosX}
+                          posY={product.photoPosY}
                           zoom={product.photoZoom ?? 1}
                           scale={product.photoScale ?? 1}
                           fit={imageFitModes[`pri-${product.id}`] || 'cover'}
                           isLocked={product.imageLocked}
                           readOnly={isViewingSnapshot}
+                          activeTool={activeTool}
                           height={additionalImgs.length === 0 ? (isPortrait ? '340px' : '360px') : (isPortrait ? '270px' : '330px')}
                           onUpdateCrop={(data) => handleApplyFrameCrop(product.id, 'primary', null, data)}
                           onResetOriginal={() => handleResetCrop(product.id, 'primary')}
@@ -1808,6 +1819,8 @@ export default function ReviewSheet({
                                   label={img.label || `Picture - ${addIdx + 2}`}
                                   panX={img.pan?.x ?? 50}
                                   panY={img.pan?.y ?? 50}
+                                  posX={img.posX}
+                                  posY={img.posY}
                                   zoom={img.zoom ?? 1}
                                   scale={img.scale ?? 1}
                                   fit={imageFitModes[`add-${img.id}`] || 'cover'}
@@ -2115,6 +2128,8 @@ export default function ReviewSheet({
                         label={img.label || `Picture - ${trueIdx + 2}`}
                         panX={img.pan?.x ?? 50}
                         panY={img.pan?.y ?? 50}
+                        posX={img.posX}
+                        posY={img.posY}
                         zoom={img.zoom ?? 1}
                         scale={img.scale ?? 1}
                         fit={imageFitModes[`add-${img.id}`] || 'cover'}
