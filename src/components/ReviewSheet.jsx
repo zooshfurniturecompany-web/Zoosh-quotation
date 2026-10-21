@@ -79,6 +79,19 @@ export default function ReviewSheet({
 
         if (isMounted) {
           setDoc(reviewDoc);
+          const baseline = {};
+          (reviewDoc.products || []).forEach((p) => {
+            baseline[p.id] = JSON.stringify({
+              photo: p.photo,
+              originalPhoto: p.originalPhoto,
+              annotations: p.annotations,
+              additionalImages: p.additionalImages,
+              fabricSelections: p.fabricSelections,
+              imageLocked: p.imageLocked,
+              approvalStatus: p.approvalStatus,
+            });
+          });
+          baselineProductsRef.current = baseline;
           setViewingSnapshotNo(null);
         }
       } catch (err) {
@@ -103,10 +116,17 @@ export default function ReviewSheet({
   const displayedDoc = isViewingSnapshot ? doc.snapshots[viewingSnapshotNo] : activeDocument;
   const products = displayedDoc?.products || [];
 
-  // Total Pages = 1 Title Page + 1 page per product
-  const totalPages = Math.max(1, 1 + products.length);
+  // Track baseline saved state of products to increment productRevision independently
+  const baselineProductsRef = useRef({});
 
-  // Save changes to active review document
+  // Total Pages = 1 Title Page + 1 page per product + continuation pages for products with > 4 images
+  const continuationPagesCount = products.reduce(
+    (acc, p) => acc + ((p.additionalImages?.length || 0) > 4 ? 1 : 0),
+    0
+  );
+  const totalPages = Math.max(1, 1 + products.length + continuationPagesCount);
+
+  // Save changes to active review document with independent product revision incrementing
   const handleSaveActiveDoc = async (updatedDoc = doc) => {
     if (isViewingSnapshot) {
       addToast('Cannot modify historical snapshot. Switch to Active Document to make edits.', 'warning');
@@ -114,8 +134,50 @@ export default function ReviewSheet({
     }
     setSaving(true);
     try {
-      const saved = await saveReviewDocument(updatedDoc);
+      // Evaluate if any products changed compared to baseline to independently increment productRevision
+      const currentProducts = updatedDoc?.products || [];
+      const updatedProducts = currentProducts.map((p) => {
+        const currentHash = JSON.stringify({
+          photo: p.photo,
+          originalPhoto: p.originalPhoto,
+          annotations: p.annotations,
+          additionalImages: p.additionalImages,
+          fabricSelections: p.fabricSelections,
+          imageLocked: p.imageLocked,
+          approvalStatus: p.approvalStatus,
+        });
+        const baselineHash = baselineProductsRef.current[p.id];
+        if (baselineHash && currentHash !== baselineHash) {
+          const currentRev = parseInt(p.productRevision || '0', 10);
+          const nextRevStr = String(currentRev + 1).padStart(2, '0');
+          return { ...p, productRevision: nextRevStr };
+        }
+        return p;
+      });
+
+      const docToSave = {
+        ...updatedDoc,
+        products: updatedProducts,
+      };
+
+      const saved = await saveReviewDocument(docToSave);
       setDoc(saved);
+
+      // Update baseline after successful save
+      const newBaseline = {};
+      (saved.products || []).forEach((p) => {
+        newBaseline[p.id] = JSON.stringify({
+          photo: p.photo,
+          originalPhoto: p.originalPhoto,
+          annotations: p.annotations,
+          additionalImages: p.additionalImages,
+          fabricSelections: p.fabricSelections,
+          imageLocked: p.imageLocked,
+          approvalStatus: p.approvalStatus,
+        });
+      });
+      baselineProductsRef.current = newBaseline;
+
       addToast('Review Sheet saved successfully', 'success');
     } catch (err) {
       console.error('Failed to save review sheet:', err);
@@ -590,6 +652,32 @@ export default function ReviewSheet({
     addToast('Removed view and renumbered remaining images', 'info');
   };
 
+  const handleReorderAdditionalImage = (productId, imgId, direction) => {
+    if (isViewingSnapshot) return;
+    const prod = doc.products.find((p) => p.id === productId);
+    if (!prod) return;
+    const list = [...(prod.additionalImages || [])];
+    const idx = list.findIndex((img) => img.id === imgId);
+    if (idx === -1) return;
+    if (direction === 'prev' && idx > 0) {
+      const temp = list[idx];
+      list[idx] = list[idx - 1];
+      list[idx - 1] = temp;
+    } else if (direction === 'next' && idx < list.length - 1) {
+      const temp = list[idx];
+      list[idx] = list[idx + 1];
+      list[idx + 1] = temp;
+    } else {
+      return;
+    }
+    const updated = list.map((img, i) => ({
+      ...img,
+      label: `Picture - ${i + 2}`,
+    }));
+    handleProductUpdate(productId, { additionalImages: updated });
+    addToast('Reordered product views', 'info');
+  };
+
   if (loading) {
     return (
       <div style={{ padding: '80px 20px', textAlign: 'center', fontFamily: 'var(--font-sans)', background: '#eef0f3', minHeight: '100vh' }}>
@@ -1026,9 +1114,9 @@ export default function ReviewSheet({
           const additionalImgs = product.additionalImages || [];
 
           return (
-            <div
-              key={product.id || pIdx}
-              className="word-page-sheet a4-page product-page"
+            <React.Fragment key={product.id || pIdx}>
+              <div
+                className="word-page-sheet a4-page product-page"
               style={{
                 width: a4PageWidth,
                 minHeight: a4PageMinHeight,
@@ -1356,7 +1444,7 @@ export default function ReviewSheet({
                           </div>
                         </div>
 
-                        {/* Additional Images Cells */}
+                        {/* Additional Images Cells (Up to 4 images on Page 1, subsequent on Continuation Page) */}
                         <div
                           style={{
                             display: 'grid',
@@ -1365,7 +1453,7 @@ export default function ReviewSheet({
                             alignContent: 'start',
                           }}
                         >
-                          {additionalImgs.map((img, addIdx) => (
+                          {additionalImgs.slice(0, 4).map((img, addIdx) => (
                             <div
                               key={img.id}
                               style={{
@@ -1393,7 +1481,31 @@ export default function ReviewSheet({
                                 }}
                               >
                                 <span>{img.label || `Picture - ${addIdx + 2}`}</span>
-                                <div style={{ display: 'flex', gap: '4px' }} className="no-print">
+                                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} className="no-print">
+                                  {!img.locked && !isViewingSnapshot && (
+                                    <>
+                                      {addIdx > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                          title="Move view earlier"
+                                        >
+                                          ◀
+                                        </button>
+                                      )}
+                                      {addIdx < additionalImgs.length - 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                          title="Move view later"
+                                        >
+                                          ▶
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
                                   {img.originalUrl && (
                                     <button
                                       type="button"
@@ -1404,7 +1516,7 @@ export default function ReviewSheet({
                                       ↺
                                     </button>
                                   )}
-                                  {!isViewingSnapshot && (
+                                  {!isViewingSnapshot && !img.locked && (
                                     <button
                                       type="button"
                                       onClick={() => setCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
@@ -1424,7 +1536,7 @@ export default function ReviewSheet({
                                       {img.locked ? '🔒' : '🔓'}
                                     </button>
                                   )}
-                                  {!isViewingSnapshot && (
+                                  {!isViewingSnapshot && !img.locked && (
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
@@ -1747,6 +1859,194 @@ export default function ReviewSheet({
                 </div>
               </div>
             </div>
+
+            {/* Continuation Page for same product when it has > 4 additional images */}
+            {additionalImgs.length > 4 && (
+              <div
+                className="word-page-sheet a4-page product-page continuation-page"
+                style={{
+                  width: a4PageWidth,
+                  minHeight: a4PageMinHeight,
+                  background: '#ffffff',
+                  boxShadow: '0 4px 18px rgba(0, 0, 0, 0.12)',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '2px',
+                  padding: '24px 32px',
+                  boxSizing: 'border-box',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '14px',
+                  position: 'relative',
+                  pageBreakAfter: 'always',
+                }}
+              >
+                {/* Top Compact Bar (Continuation Page) */}
+                <div
+                  style={{
+                    border: '1.5px solid #111111',
+                    padding: '10px 16px',
+                    background: '#ffffff',
+                    display: 'grid',
+                    gridTemplateColumns: '1.4fr 1.1fr 1.1fr',
+                    gap: '12px',
+                    alignItems: 'center',
+                    fontSize: '11px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div>
+                    <div><strong>Sl. No. :</strong> {pIdx + 1}</div>
+                    <div style={{ marginTop: '2px' }}>
+                      <strong>ITEM :</strong> <span style={{ textTransform: 'uppercase', fontWeight: 700 }}>{product.name}</span>
+                      <span style={{ marginLeft: '6px', fontSize: '10px', color: '#1565c0', fontWeight: 700 }}>(CONTINUATION PAGE)</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div>
+                      <strong>PRODUCT ID :</strong>{' '}
+                      {isApproved ? (
+                        <span style={{ color: '#27ae60', fontWeight: 700 }}>{pid}</span>
+                      ) : (
+                        <span style={{ color: '#d97706', fontWeight: 600 }}>PENDING APPROVAL</span>
+                      )}
+                    </div>
+                    <div style={{ marginTop: '2px' }}>
+                      <strong>QUANTITY :</strong> {product.qty} {product.utype || 'nos'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                    <div><strong>Product Rev :</strong> <span style={{ fontWeight: 700 }}>{product.productRevision || '00'}</span></div>
+                    <div style={{ fontSize: '10px', color: '#555' }}>Additional Views Grid</div>
+                  </div>
+                </div>
+
+                {/* Continuation Image Grid: 2 columns with large, readable cells */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isPortrait ? '1fr' : 'repeat(2, 1fr)',
+                    gap: '12px',
+                    alignContent: 'start',
+                    flex: 1,
+                  }}
+                >
+                  {additionalImgs.slice(4).map((img, addIdx) => {
+                    const trueIdx = addIdx + 4;
+                    return (
+                      <div
+                        key={img.id}
+                        style={{
+                          position: 'relative',
+                          border: '1px solid #bbb',
+                          background: '#ffffff',
+                          height: isPortrait ? '260px' : '310px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: '4px 8px',
+                            background: '#f1f3f5',
+                            borderBottom: '1px solid #ddd',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            color: '#333',
+                          }}
+                        >
+                          <span>{img.label || `Picture - ${trueIdx + 2}`}</span>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }} className="no-print">
+                            {!img.locked && !isViewingSnapshot && (
+                              <>
+                                {trueIdx > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReorderAdditionalImage(product.id, img.id, 'prev')}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                    title="Move view earlier"
+                                  >
+                                    ◀
+                                  </button>
+                                )}
+                                {trueIdx < additionalImgs.length - 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReorderAdditionalImage(product.id, img.id, 'next')}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                    title="Move view later"
+                                  >
+                                    ▶
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {img.originalUrl && (
+                              <button
+                                type="button"
+                                onClick={() => handleResetCrop(product.id, 'additional', img.id)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                title="Reset crop"
+                              >
+                                ↺
+                              </button>
+                            )}
+                            {!isViewingSnapshot && !img.locked && (
+                              <button
+                                type="button"
+                                onClick={() => setCropTarget({ productId: product.id, imageType: 'additional', imageId: img.id, imageSrc: img.originalUrl || img.url })}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                title="Crop"
+                              >
+                                ✂️
+                              </button>
+                            )}
+                            {!isViewingSnapshot && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleImageLock(product.id, 'additional', img.id)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '9px', padding: 0 }}
+                                title={img.locked ? 'Locked' : 'Unlocked'}
+                              >
+                                {img.locked ? '🔒' : '🔓'}
+                              </button>
+                            )}
+                            {!isViewingSnapshot && !img.locked && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAdditionalImage(product.id, img.id)}
+                                style={{ background: 'none', border: 'none', color: '#ff5555', cursor: 'pointer', fontSize: '11px', padding: 0 }}
+                                title="Remove view"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fafafa', padding: '6px' }}>
+                          <img
+                            src={img.url}
+                            alt={img.label}
+                            style={{
+                              maxWidth: '100%',
+                              maxHeight: '100%',
+                              objectFit: 'contain',
+                              display: 'block',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </React.Fragment>
           );
         })}
       </div>

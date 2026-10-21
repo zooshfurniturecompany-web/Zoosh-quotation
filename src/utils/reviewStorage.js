@@ -230,6 +230,9 @@ export async function createInitialReviewDocument(quote) {
       annotations: [],
       additionalImages: [],
       imageLocked: false,
+      productRevision: '00',
+      remarksRevision: '00',
+      clientRemarks: [],
       customerNotes: '',
       fabricSelections: [],
       productId: null, // Assigned only upon production approval

@@ -29,6 +29,40 @@ function base64ToUint8Array(dataUrl) {
 }
 
 /**
+ * Robustly load image as Uint8Array (handles data URLs, blob URLs, and remote URLs)
+ */
+async function getImageBytes(imageSource) {
+  if (!imageSource) return null;
+  if (typeof imageSource === 'string' && imageSource.startsWith('data:image')) {
+    try {
+      return base64ToUint8Array(imageSource);
+    } catch (e) {
+      return null;
+    }
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width || 400;
+        canvas.height = img.naturalHeight || img.height || 300;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        resolve(base64ToUint8Array(dataUrl));
+      } catch (e) {
+        console.warn('Canvas conversion failed for image source:', e);
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = imageSource;
+  });
+}
+
+/**
  * Draw arrowheads on canvas
  */
 function drawCanvasArrow(ctx, fromX, fromY, toX, toY, color = '#e74c3c', size = 10) {
@@ -410,7 +444,7 @@ export async function renderProductCanvasToImage(product, targetWidth = 1000, ta
 /**
  * Build Word Table for Selected Fabric Details (Exact 7-column Reference Image 1 Layout)
  */
-function buildFabricDetailsWordTable(fabricSelections = []) {
+async function buildFabricDetailsWordTable(fabricSelections = []) {
   const borderGrey = { style: BorderStyle.SINGLE, size: 4, color: '111111' };
   const cellBorders = {
     top: borderGrey,
@@ -480,16 +514,17 @@ function buildFabricDetailsWordTable(fabricSelections = []) {
       })
     );
   } else {
-    fabricSelections.forEach((fab, idx) => {
-      // Swatch cell handling
+    for (let idx = 0; idx < fabricSelections.length; idx++) {
+      const fab = fabricSelections[idx];
       let swatchParagraph;
       try {
-        if (fab.refImage && fab.refImage.startsWith('data:image')) {
+        const swatchBytes = await getImageBytes(fab.refImage);
+        if (swatchBytes) {
           swatchParagraph = new Paragraph({
             alignment: AlignmentType.CENTER,
             children: [
               new ImageRun({
-                data: base64ToUint8Array(fab.refImage),
+                data: swatchBytes,
                 transformation: { width: 44, height: 28 },
               }),
             ],
@@ -554,12 +589,121 @@ function buildFabricDetailsWordTable(fabricSelections = []) {
           ],
         })
       );
-    });
+    }
   }
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [headerRow, ...bodyRows],
+  });
+}
+
+/**
+ * Build Word Table for Additional Product Views in a 2-column responsive layout
+ */
+async function buildAdditionalImagesWordTable(additionalImages = []) {
+  if (!additionalImages || additionalImages.length === 0) return null;
+  const borderLight = { style: BorderStyle.SINGLE, size: 4, color: 'D1D5DB' };
+  const cellBorders = {
+    top: borderLight,
+    bottom: borderLight,
+    left: borderLight,
+    right: borderLight,
+  };
+
+  const rows = [];
+  for (let i = 0; i < additionalImages.length; i += 2) {
+    const img1 = additionalImages[i];
+    const img2 = additionalImages[i + 1] || null;
+
+    const bytes1 = await getImageBytes(img1?.url);
+    const bytes2 = img2 ? await getImageBytes(img2.url) : null;
+
+    const cell1Children = [
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: img1.label || `Picture - ${i + 2}`,
+            bold: true,
+            size: 15,
+            color: '333333',
+          }),
+        ],
+        spacing: { after: 40 },
+      }),
+    ];
+    if (bytes1) {
+      cell1Children.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: bytes1,
+              transformation: { width: 200, height: 140 },
+            }),
+          ],
+        })
+      );
+    }
+
+    const cells = [
+      new TableCell({
+        width: { size: 50, type: WidthType.PERCENTAGE },
+        borders: cellBorders,
+        shading: { fill: 'FAFAFA', type: ShadingType.CLEAR },
+        children: cell1Children,
+      }),
+    ];
+
+    if (img2) {
+      const cell2Children = [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: img2.label || `Picture - ${i + 3}`,
+              bold: true,
+              size: 15,
+              color: '333333',
+            }),
+          ],
+          spacing: { after: 40 },
+        }),
+      ];
+      if (bytes2) {
+        cell2Children.push(
+          new Paragraph({
+            children: [
+              new ImageRun({
+                data: bytes2,
+                transformation: { width: 200, height: 140 },
+              }),
+            ],
+          })
+        );
+      }
+      cells.push(
+        new TableCell({
+          width: { size: 50, type: WidthType.PERCENTAGE },
+          borders: cellBorders,
+          shading: { fill: 'FAFAFA', type: ShadingType.CLEAR },
+          children: cell2Children,
+        })
+      );
+    } else {
+      cells.push(
+        new TableCell({
+          width: { size: 50, type: WidthType.PERCENTAGE },
+          borders: cellBorders,
+          children: [new Paragraph({ text: '' })],
+        })
+      );
+    }
+
+    rows.push(new TableRow({ children: cells }));
+  }
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows,
   });
 }
 
@@ -809,48 +953,31 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       }),
     ];
 
-    // If product has additional views, include them
+    // If product has additional views, include up to 4 in a responsive grid on Page 1
     if (product.additionalImages && product.additionalImages.length > 0) {
-      leftChildren.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `ADDITIONAL VIEWS (${product.additionalImages.length} attached photos):`,
-              bold: true,
-              size: 15,
-              color: '666666',
-            }),
-          ],
-          spacing: { after: 80 },
-        })
-      );
-      product.additionalImages.slice(0, 3).forEach((addImg) => {
-        try {
-          if (addImg.url && addImg.url.startsWith('data:image')) {
-            leftChildren.push(
-              new Paragraph({
-                children: [
-                  new ImageRun({
-                    data: base64ToUint8Array(addImg.url),
-                    transformation: { width: 90, height: 90 },
-                  }),
-                  new TextRun({
-                    text: `  ${addImg.label || 'Picture'}: ${addImg.caption || 'Detail'}`,
-                    size: 14,
-                    color: '555555',
-                  }),
-                ],
-                spacing: { after: 60 },
-              })
-            );
-          }
-        } catch (e) {
-          console.warn('Failed embedding additional image in Word doc:', e);
-        }
-      });
+      const page1AddImgs = product.additionalImages.slice(0, 4);
+      const addTable = await buildAdditionalImagesWordTable(page1AddImgs);
+      if (addTable) {
+        leftChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `ADDITIONAL VIEWS (${product.additionalImages.length} attached views):`,
+                bold: true,
+                size: 15,
+                color: '444444',
+              }),
+            ],
+            spacing: { before: 80, after: 60 },
+          }),
+          addTable,
+          new Paragraph({ text: '', spacing: { after: 80 } })
+        );
+      }
     }
 
     // Add Fabric Details Table to left column
+    const fabricTable = await buildFabricDetailsWordTable(product.fabricSelections);
     leftChildren.push(
       new Paragraph({
         children: [
@@ -863,7 +990,7 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
         ],
         spacing: { before: 100, after: 80 },
       }),
-      buildFabricDetailsWordTable(product.fabricSelections),
+      fabricTable,
       new Paragraph({ text: '', spacing: { after: 120 } })
     );
 
@@ -1080,6 +1207,131 @@ export async function buildReviewWordDoc({ doc, targetProduct = null, orientatio
       },
       children: pageChildren,
     });
+
+    // Continuation Section for the same product if it has > 4 additional images
+    if (product.additionalImages && product.additionalImages.length > 4) {
+      const continuationImgs = product.additionalImages.slice(4);
+      const continuationGridTable = await buildAdditionalImagesWordTable(continuationImgs);
+
+      const continuationTopInfoTable = new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({
+                width: { size: 40, type: WidthType.PERCENTAGE },
+                borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Sl. No. : ', bold: true, size: 18 }),
+                      new TextRun({ text: `${itemNum}`, size: 18 }),
+                    ],
+                    spacing: { after: 30 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'ITEM : ', bold: true, size: 18 }),
+                      new TextRun({ text: product.name?.toUpperCase() || 'UNTITLED ITEM', bold: true, size: 18 }),
+                      new TextRun({ text: ' (CONTINUATION PAGE)', bold: true, size: 16, color: '1565C0' }),
+                    ],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 32, type: WidthType.PERCENTAGE },
+                borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'PRODUCT ID : ', bold: true, size: 18 }),
+                      new TextRun({
+                        text: pid,
+                        bold: true,
+                        size: 18,
+                        color: isApproved ? '27AE60' : 'D97706',
+                      }),
+                    ],
+                    spacing: { after: 30 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'QUANTITY : ', bold: true, size: 18 }),
+                      new TextRun({ text: `${product.qty} ${product.utype || 'nos'}`, size: 18 }),
+                    ],
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 28, type: WidthType.PERCENTAGE },
+                borders: { top: infoBorder, bottom: infoBorder, left: infoBorder, right: infoBorder },
+                shading: { fill: 'FFFFFF', type: ShadingType.CLEAR },
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Product Rev : ', bold: true, size: 18 }),
+                      new TextRun({ text: `${product.productRevision || '00'}`, bold: true, size: 18 }),
+                    ],
+                    spacing: { after: 30 },
+                  }),
+                  new Paragraph({
+                    children: [
+                      new TextRun({ text: 'Status : ', bold: true, size: 18 }),
+                      new TextRun({
+                        text: isApproved ? 'Approved' : 'Pending',
+                        bold: true,
+                        size: 18,
+                        color: isApproved ? '27AE60' : 'D97706',
+                      }),
+                    ],
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const continuationChildren = [
+        continuationTopInfoTable,
+        new Paragraph({ text: '', spacing: { after: 140 } }),
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: 'ADDITIONAL PRODUCT VIEWS & FABRICATION DETAILS:',
+              bold: true,
+              size: 17,
+              color: '333333',
+            }),
+          ],
+          spacing: { after: 100 },
+        }),
+      ];
+      if (continuationGridTable) {
+        continuationChildren.push(continuationGridTable);
+      }
+
+      sections.push({
+        properties: {
+          page: {
+            pageOrientation: isPortrait ? PageOrientation.PORTRAIT : PageOrientation.LANDSCAPE,
+            size: {
+              width: pageWidth,
+              height: pageHeight,
+            },
+            margin: {
+              top: 720,
+              right: 720,
+              bottom: 720,
+              left: 720,
+            },
+          },
+        },
+        children: continuationChildren,
+      });
+    }
   }
 
   return new Document({ sections });
